@@ -1,10 +1,46 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
 [project]
-name = "fedora-rust-deps-analyze"
-version = "0.1.0"
-description = "Add your description here"
+name = "woolly"
+description = "Recursively search for RPMs in Fedora for Rust crates."
 readme = "README.md"
+authors = [
+    { name = "Rodolfo Olivieri", email = "rodolfo.olivieri3@gmail.com"}
+]
+dynamic = ["version"]
 requires-python = ">=3.14"
 dependencies = [
     "requests>=2.32.5",
     "rich>=14.2.0",
 ]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+]
+
+[project.url]
+"Source code" = "https://github.com/r0x0d/woolly"
+"Bug Tracker" = "https://github.com/r0x0d/woolly/issues"
+
+[project.scripts]
+woolly = "woolly.__main__:main"
+
+
+[tool.hatch.build.targets.wheel]
+packages = ["woolly"]
+
+[tool.hatch.version]
+source = "vcs"
