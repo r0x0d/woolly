@@ -1,0 +1,29 @@
+on:
+  release:
+    types: [published]
+
+
+jobs:
+  pypi-publish:
+    name: upload release to PyPI
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    permissions:
+      # This permission is needed for private repositories.
+      contents: read
+      # IMPORTANT: this permission is mandatory for trusted publishing
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "${{ matrix.python-version }}"
+
+      - name: Build wheel (${{ matrix.python-version }}) 
+        run: uv build
+
+      - name: Publish package distributions to PyPI
+        run: uv publish
