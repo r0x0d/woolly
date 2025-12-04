@@ -1,0 +1,358 @@
+"""
+Check command - analyze package dependencies for Fedora availability.
+"""
+
+from typing import Annotated, Optional
+
+import cyclopts
+from rich.tree import Tree
+
+from woolly.cache import CACHE_DIR
+from woolly.commands import app, console
+from woolly.debug import get_log_file, log, log_package_check, setup_logger
+from woolly.languages import get_available_languages, get_provider
+from woolly.languages.base import LanguageProvider
+from woolly.progress import ProgressTracker
+from woolly.reporters import ReportData, get_available_formats, get_reporter
+
+
+def build_tree(
+    provider: LanguageProvider,
+    package_name: str,
+    version: Optional[str] = None,
+    visited: Optional[dict] = None,
+    depth: int = 0,
+    max_depth: int = 50,
+    tracker: Optional[ProgressTracker] = None,
+):
+    """
+    Recursively build a dependency tree for a package.
+
+    Parameters
+    ----------
+    provider
+        The language provider to use.
+    package_name
+        Name of the package to analyze.
+    version
+        Specific version, or None for latest.
+    visited
+        Dict of already-visited packages mapping to their status.
+    depth
+        Current recursion depth.
+    max_depth
+        Maximum recursion depth.
+    tracker
+        Optional progress tracker.
+
+    Returns
+    -------
+    Tree
+        Rich Tree object representing the dependency tree.
+    """
+    if visited is None:
+        visited = {}
+
+    if depth > max_depth:
+        log(f"Max depth reached for {package_name}", level="warning", depth=depth)
+        return f"[dim]{package_name} (max depth reached)[/dim]"
+
+    if package_name in visited:
+        is_packaged, cached_version = visited[package_name]
+        log_package_check(
+            package_name,
+            "Skip (already visited)",
+            result="packaged" if is_packaged else "not packaged",
+        )
+        if is_packaged:
+            return f"[dim]{package_name}[/dim] [dim]v{cached_version}[/dim] • [green]✓[/green] [dim](already visited)[/dim]"
+        else:
+            return (
+                f"[dim]{package_name}[/dim] • [red]✗[/red] [dim](already visited)[/dim]"
+            )
+
+    if tracker:
+        tracker.update(package_name)
+
+    log_package_check(package_name, "Fetching version", source=provider.registry_name)
+
+    if version is None:
+        version = provider.get_latest_version(package_name)
+        if version is None:
+            visited[package_name] = (False, None)
+            log_package_check(
+                package_name, "Not found", source=provider.registry_name, result="error"
+            )
+            return (
+                f"[bold red]{package_name}[/bold red] • "
+                f"[red]not found on {provider.registry_name}[/red]"
+            )
+
+    log_package_check(package_name, "Checking Fedora", source="dnf repoquery")
+
+    # Check Fedora packaging status
+    status = provider.check_fedora_packaging(package_name)
+    visited[package_name] = (status.is_packaged, version)
+
+    if status.is_packaged:
+        log_package_check(
+            package_name,
+            "Fedora status",
+            result=f"packaged ({', '.join(status.versions)})",
+        )
+    else:
+        log_package_check(package_name, "Fedora status", result="not packaged")
+
+    if status.is_packaged:
+        ver_str = ", ".join(status.versions) if status.versions else "unknown"
+        pkg_str = ", ".join(status.package_names) if status.package_names else ""
+        label = (
+            f"[bold]{package_name}[/bold] [dim]v{version}[/dim] • "
+            f"[green]✓ packaged[/green] [dim]({ver_str})[/dim]"
+        )
+        if pkg_str:
+            label += f" [dim cyan][{pkg_str}][/dim cyan]"
+    else:
+        label = (
+            f"[bold]{package_name}[/bold] [dim]v{version}[/dim] • "
+            f"[red]✗ not packaged[/red]"
+        )
+
+    node = Tree(label)
+
+    # ALWAYS recurse into dependencies regardless of packaging status
+    log_package_check(
+        package_name, "Fetching dependencies", source=provider.registry_name
+    )
+
+    deps = provider.get_normal_dependencies(package_name, version)
+
+    log(f"Found {len(deps)} dependencies for {package_name}", deps=len(deps))
+
+    if tracker and deps:
+        tracker.update(package_name, discovered=len(deps))
+
+    for dep_name, _dep_req in deps:
+        child = build_tree(
+            provider, dep_name, None, visited, depth + 1, max_depth, tracker
+        )
+        if isinstance(child, str):
+            node.add(child)
+        elif isinstance(child, Tree):
+            # Directly append Tree children to avoid wrapping
+            # Rich's add() would wrap the Tree in another node
+            node.children.append(child)
+        else:
+            node.add(child)
+
+    return node
+
+
+def collect_stats(tree, stats=None):
+    """Walk the tree and collect statistics."""
+    if stats is None:
+        stats = {
+            "total": 0,
+            "packaged": 0,
+            "missing": 0,
+            "missing_list": [],
+            "packaged_list": [],
+        }
+
+    def walk(t):
+        if isinstance(t, str):
+            stats["total"] += 1
+            if "not packaged" in t or "not found" in t:
+                stats["missing"] += 1
+                name = (
+                    t.split("[/bold]")[0].split("]")[-1]
+                    if "[/bold]" in t
+                    else t.split()[0]
+                )
+                stats["missing_list"].append(name)
+            elif "packaged" in t:
+                stats["packaged"] += 1
+            return
+
+        if hasattr(t, "label"):
+            label = str(t.label)
+            stats["total"] += 1
+            if "not packaged" in label or "not found" in label:
+                stats["missing"] += 1
+                name = (
+                    label.split("[/bold]")[0].split("[bold]")[-1]
+                    if "[bold]" in label
+                    else "unknown"
+                )
+                stats["missing_list"].append(name)
+            elif "packaged" in label:
+                stats["packaged"] += 1
+                name = (
+                    label.split("[/bold]")[0].split("[bold]")[-1]
+                    if "[bold]" in label
+                    else "unknown"
+                )
+                stats["packaged_list"].append(name)
+
+        if hasattr(t, "children"):
+            for child in t.children:
+                walk(child)
+
+    walk(tree)
+    return stats
+
+
+@app.command(name="check")
+def check(
+    package: Annotated[
+        str,
+        cyclopts.Parameter(
+            help="Package name to check.",
+        ),
+    ],
+    *,
+    lang: Annotated[
+        str,
+        cyclopts.Parameter(
+            ("--lang", "-l"),
+            help="Language/ecosystem. Use 'list-languages' to see options.",
+        ),
+    ] = "rust",
+    version: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            ("--version", "-v"),
+            help="Specific version to check.",
+        ),
+    ] = None,
+    max_depth: Annotated[
+        int,
+        cyclopts.Parameter(
+            ("--max-depth", "-d"),
+            help="Maximum recursion depth.",
+        ),
+    ] = 50,
+    no_progress: Annotated[
+        bool,
+        cyclopts.Parameter(
+            negative=(),
+            help="Disable progress bar.",
+        ),
+    ] = False,
+    debug: Annotated[
+        bool,
+        cyclopts.Parameter(
+            negative=(),
+            help="Enable verbose debug logging (includes command outputs and API responses).",
+        ),
+    ] = False,
+    report: Annotated[
+        str,
+        cyclopts.Parameter(
+            ("--report", "-r"),
+            help="Report format: stdout, json, markdown. Use 'list-formats' for all options.",
+        ),
+    ] = "stdout",
+):
+    """Check if a package's dependencies are available in Fedora.
+
+    Parameters
+    ----------
+    package
+        The name of the package to analyze.
+    lang
+        Language/ecosystem (default: rust).
+    version
+        Specific version to check (default: latest).
+    max_depth
+        Maximum recursion depth for dependency tree.
+    no_progress
+        Disable progress bar during analysis.
+    debug
+        Enable verbose debug logging.
+    report
+        Output format for the report.
+    """
+    # Get the language provider
+    provider = get_provider(lang)
+    if provider is None:
+        console.print(f"[red]Unknown language: {lang}[/red]")
+        console.print(f"Available languages: {', '.join(get_available_languages())}")
+        raise SystemExit(1)
+
+    # Get the reporter
+    reporter = get_reporter(report, console=console)
+    if reporter is None:
+        console.print(f"[red]Unknown report format: {report}[/red]")
+        console.print(f"Available formats: {', '.join(get_available_formats())}")
+        raise SystemExit(1)
+
+    # Initialize logging
+    setup_logger(debug=debug)
+    log(
+        "Analysis started",
+        package=package,
+        language=lang,
+        max_depth=max_depth,
+        debug=debug,
+        report_format=report,
+    )
+
+    console.print(
+        f"\n[bold underline]Analyzing {provider.display_name} package:[/] {package}"
+    )
+    console.print(f"[dim]Registry: {provider.registry_name}[/dim]")
+    console.print(f"[dim]Cache directory: {CACHE_DIR}[/dim]")
+    console.print()
+
+    tracker = None if no_progress else ProgressTracker(console)
+
+    if tracker:
+        tracker.start(f"Analyzing {provider.display_name} dependencies")
+
+    try:
+        tree = build_tree(
+            provider,
+            package,
+            version,
+            max_depth=max_depth,
+            tracker=tracker,
+        )
+        if tracker:
+            tracker.finish()
+    finally:
+        if tracker:
+            tracker.stop()
+        log("Analysis complete")
+
+    console.print()
+
+    # Collect statistics
+    stats = collect_stats(tree)
+
+    # Create report data
+    report_data = ReportData(
+        root_package=package,
+        language=provider.display_name,
+        registry=provider.registry_name,
+        total_dependencies=stats["total"],
+        packaged_count=stats["packaged"],
+        missing_count=stats["missing"],
+        missing_packages=stats["missing_list"],
+        packaged_packages=stats["packaged_list"],
+        tree=tree,
+        max_depth=max_depth,
+        version=version,
+    )
+
+    # Generate report
+    if reporter.writes_to_file:
+        output_path = reporter.write_report(report_data)
+        console.print(f"[green]Report saved to: {output_path}[/green]")
+    else:
+        reporter.generate(report_data)
+
+    # Show log file path
+    log_file = get_log_file()
+    if log_file:
+        console.print(f"[dim]Log saved to: {log_file}[/dim]\n")
