@@ -36,15 +36,39 @@ class StdoutReporter(Reporter):
         table.add_row("[green]Packaged in Fedora[/green]", str(data.packaged_count))
         table.add_row("[red]Missing from Fedora[/red]", str(data.missing_count))
 
+        # Show optional dependency stats if any were found
+        if data.optional_total > 0:
+            table.add_row("", "")  # Empty row as separator
+            table.add_row(
+                "[yellow]Optional dependencies[/yellow]", str(data.optional_total)
+            )
+            table.add_row("[yellow]  ├─ Packaged[/yellow]", str(data.optional_packaged))
+            table.add_row("[yellow]  └─ Missing[/yellow]", str(data.optional_missing))
+
         self.console.print(table)
         self.console.print()
 
         # Print missing packages list
         if data.missing_packages:
-            self.console.print("[bold]Missing packages that need packaging:[/bold]")
-            for name in sorted(set(data.missing_packages)):
-                self.console.print(f"  • {name}")
-            self.console.print()
+            # Separate required and optional missing packages
+            required_missing = set(data.missing_packages) - set(
+                data.optional_missing_packages
+            )
+            optional_missing = set(data.optional_missing_packages)
+
+            if required_missing:
+                self.console.print("[bold]Missing packages that need packaging:[/bold]")
+                for name in sorted(required_missing):
+                    self.console.print(f"  • {name}")
+                self.console.print()
+
+            if optional_missing:
+                self.console.print(
+                    "[bold yellow]Missing optional packages:[/bold yellow]"
+                )
+                for name in sorted(optional_missing):
+                    self.console.print(f"  • {name} [dim](optional)[/dim]")
+                self.console.print()
 
         # Print dependency tree
         self.console.print("[bold]Dependency Tree:[/bold]")

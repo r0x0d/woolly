@@ -29,6 +29,8 @@ class MarkdownReporter(Reporter):
         lines.append(f"**Registry:** {data.registry}")
         if data.version:
             lines.append(f"**Version:** {data.version}")
+        if data.include_optional:
+            lines.append("**Include optional:** Yes")
         lines.append("")
 
         # Summary
@@ -39,16 +41,36 @@ class MarkdownReporter(Reporter):
         lines.append(f"| Total dependencies checked | {data.total_dependencies} |")
         lines.append(f"| Packaged in Fedora | {data.packaged_count} |")
         lines.append(f"| Missing from Fedora | {data.missing_count} |")
+
+        # Optional dependency stats
+        if data.optional_total > 0:
+            lines.append(f"| Optional dependencies | {data.optional_total} |")
+            lines.append(f"| Optional - Packaged | {data.optional_packaged} |")
+            lines.append(f"| Optional - Missing | {data.optional_missing} |")
         lines.append("")
 
         # Missing packages
-        if data.missing_packages:
+        required_missing = set(data.missing_packages) - set(
+            data.optional_missing_packages
+        )
+        optional_missing = set(data.optional_missing_packages)
+
+        if required_missing:
             lines.append("## Missing Packages")
             lines.append("")
             lines.append("The following packages need to be packaged for Fedora:")
             lines.append("")
-            for name in sorted(set(data.missing_packages)):
+            for name in sorted(required_missing):
                 lines.append(f"- `{name}`")
+            lines.append("")
+
+        if optional_missing:
+            lines.append("## Missing Optional Packages")
+            lines.append("")
+            lines.append("The following optional packages are not available in Fedora:")
+            lines.append("")
+            for name in sorted(optional_missing):
+                lines.append(f"- `{name}` *(optional)*")
             lines.append("")
 
         # Packaged packages

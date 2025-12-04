@@ -24,6 +24,8 @@ def build_tree(
     depth: int = 0,
     max_depth: int = 50,
     tracker: Optional[ProgressTracker] = None,
+    include_optional: bool = False,
+    is_optional_dep: bool = False,
 ):
     """
     Recursively build a dependency tree for a package.
@@ -44,6 +46,10 @@ def build_tree(
         Maximum recursion depth.
     tracker
         Optional progress tracker.
+    include_optional
+        If True, include optional dependencies in the analysis.
+    is_optional_dep
+        If True, this package is an optional dependency.
 
     Returns
     -------
@@ -53,9 +59,11 @@ def build_tree(
     if visited is None:
         visited = {}
 
+    optional_marker = " [yellow](optional)[/yellow]" if is_optional_dep else ""
+
     if depth > max_depth:
         log(f"Max depth reached for {package_name}", level="warning", depth=depth)
-        return f"[dim]{package_name} (max depth reached)[/dim]"
+        return f"[dim]{package_name}{optional_marker} (max depth reached)[/dim]"
 
     if package_name in visited:
         is_packaged, cached_version = visited[package_name]
@@ -65,11 +73,9 @@ def build_tree(
             result="packaged" if is_packaged else "not packaged",
         )
         if is_packaged:
-            return f"[dim]{package_name}[/dim] [dim]v{cached_version}[/dim] • [green]✓[/green] [dim](already visited)[/dim]"
+            return f"[dim]{package_name}[/dim] [dim]v{cached_version}[/dim]{optional_marker} • [green]✓[/green] [dim](already visited)[/dim]"
         else:
-            return (
-                f"[dim]{package_name}[/dim] • [red]✗[/red] [dim](already visited)[/dim]"
-            )
+            return f"[dim]{package_name}[/dim]{optional_marker} • [red]✗[/red] [dim](already visited)[/dim]"
 
     if tracker:
         tracker.update(package_name)
@@ -84,7 +90,7 @@ def build_tree(
                 package_name, "Not found", source=provider.registry_name, result="error"
             )
             return (
-                f"[bold red]{package_name}[/bold red] • "
+                f"[bold red]{package_name}[/bold red]{optional_marker} • "
                 f"[red]not found on {provider.registry_name}[/red]"
             )
 
@@ -107,14 +113,14 @@ def build_tree(
         ver_str = ", ".join(status.versions) if status.versions else "unknown"
         pkg_str = ", ".join(status.package_names) if status.package_names else ""
         label = (
-            f"[bold]{package_name}[/bold] [dim]v{version}[/dim] • "
+            f"[bold]{package_name}[/bold] [dim]v{version}[/dim]{optional_marker} • "
             f"[green]✓ packaged[/green] [dim]({ver_str})[/dim]"
         )
         if pkg_str:
             label += f" [dim cyan][{pkg_str}][/dim cyan]"
     else:
         label = (
-            f"[bold]{package_name}[/bold] [dim]v{version}[/dim] • "
+            f"[bold]{package_name}[/bold] [dim]v{version}[/dim]{optional_marker} • "
             f"[red]✗ not packaged[/red]"
         )
 
@@ -125,16 +131,26 @@ def build_tree(
         package_name, "Fetching dependencies", source=provider.registry_name
     )
 
-    deps = provider.get_normal_dependencies(package_name, version)
+    deps = provider.get_normal_dependencies(
+        package_name, version, include_optional=include_optional
+    )
 
     log(f"Found {len(deps)} dependencies for {package_name}", deps=len(deps))
 
     if tracker and deps:
         tracker.update(package_name, discovered=len(deps))
 
-    for dep_name, _dep_req in deps:
+    for dep_name, _dep_req, dep_is_optional in deps:
         child = build_tree(
-            provider, dep_name, None, visited, depth + 1, max_depth, tracker
+            provider,
+            dep_name,
+            None,
+            visited,
+            depth + 1,
+            max_depth,
+            tracker,
+            include_optional=include_optional,
+            is_optional_dep=dep_is_optional,
         )
         if isinstance(child, str):
             node.add(child)
@@ -157,11 +173,18 @@ def collect_stats(tree, stats=None):
             "missing": 0,
             "missing_list": [],
             "packaged_list": [],
+            "optional_total": 0,
+            "optional_packaged": 0,
+            "optional_missing": 0,
+            "optional_missing_list": [],
         }
 
     def walk(t):
         if isinstance(t, str):
             stats["total"] += 1
+            is_optional = "(optional)" in t
+            if is_optional:
+                stats["optional_total"] += 1
             if "not packaged" in t or "not found" in t:
                 stats["missing"] += 1
                 name = (
@@ -170,13 +193,21 @@ def collect_stats(tree, stats=None):
                     else t.split()[0]
                 )
                 stats["missing_list"].append(name)
+                if is_optional:
+                    stats["optional_missing"] += 1
+                    stats["optional_missing_list"].append(name)
             elif "packaged" in t:
                 stats["packaged"] += 1
+                if is_optional:
+                    stats["optional_packaged"] += 1
             return
 
         if hasattr(t, "label"):
             label = str(t.label)
             stats["total"] += 1
+            is_optional = "(optional)" in label
+            if is_optional:
+                stats["optional_total"] += 1
             if "not packaged" in label or "not found" in label:
                 stats["missing"] += 1
                 name = (
@@ -185,6 +216,9 @@ def collect_stats(tree, stats=None):
                     else "unknown"
                 )
                 stats["missing_list"].append(name)
+                if is_optional:
+                    stats["optional_missing"] += 1
+                    stats["optional_missing_list"].append(name)
             elif "packaged" in label:
                 stats["packaged"] += 1
                 name = (
@@ -193,6 +227,8 @@ def collect_stats(tree, stats=None):
                     else "unknown"
                 )
                 stats["packaged_list"].append(name)
+                if is_optional:
+                    stats["optional_packaged"] += 1
 
         if hasattr(t, "children"):
             for child in t.children:
@@ -232,6 +268,14 @@ def check(
             help="Maximum recursion depth.",
         ),
     ] = 50,
+    optional: Annotated[
+        bool,
+        cyclopts.Parameter(
+            ("--optional", "-o"),
+            negative=(),
+            help="Include optional dependencies in the analysis.",
+        ),
+    ] = False,
     no_progress: Annotated[
         bool,
         cyclopts.Parameter(
@@ -266,6 +310,8 @@ def check(
         Specific version to check (default: latest).
     max_depth
         Maximum recursion depth for dependency tree.
+    optional
+        Include optional dependencies in the analysis.
     no_progress
         Disable progress bar during analysis.
     debug
@@ -294,6 +340,7 @@ def check(
         package=package,
         language=lang,
         max_depth=max_depth,
+        include_optional=optional,
         debug=debug,
         report_format=report,
     )
@@ -301,6 +348,8 @@ def check(
     console.print(
         f"\n[bold underline]Analyzing {provider.display_name} package:[/] {package}"
     )
+    if optional:
+        console.print("[yellow]Including optional dependencies[/yellow]")
     console.print(f"[dim]Registry: {provider.registry_name}[/dim]")
     console.print(f"[dim]Cache directory: {CACHE_DIR}[/dim]")
     console.print()
@@ -317,6 +366,7 @@ def check(
             version,
             max_depth=max_depth,
             tracker=tracker,
+            include_optional=optional,
         )
         if tracker:
             tracker.finish()
@@ -343,6 +393,11 @@ def check(
         tree=tree,
         max_depth=max_depth,
         version=version,
+        include_optional=optional,
+        optional_total=stats["optional_total"],
+        optional_packaged=stats["optional_packaged"],
+        optional_missing=stats["optional_missing"],
+        optional_missing_packages=stats["optional_missing_list"],
     )
 
     # Generate report
