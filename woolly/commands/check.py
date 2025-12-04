@@ -164,11 +164,13 @@ def collect_stats(tree, stats=None):
             stats["total"] += 1
             if "not packaged" in t or "not found" in t:
                 stats["missing"] += 1
-                name = (
-                    t.split("[/bold]")[0].split("]")[-1]
-                    if "[/bold]" in t
-                    else t.split()[0]
-                )
+                # Handle both [bold] and [bold red] formats
+                if "[/bold]" in t:
+                    name = t.split("[/bold]")[0].split("]")[-1]
+                elif "[/bold red]" in t:
+                    name = t.split("[/bold red]")[0].split("[bold red]")[-1]
+                else:
+                    name = t.split()[0]
                 stats["missing_list"].append(name)
             elif "packaged" in t:
                 stats["packaged"] += 1
@@ -179,11 +181,13 @@ def collect_stats(tree, stats=None):
             stats["total"] += 1
             if "not packaged" in label or "not found" in label:
                 stats["missing"] += 1
-                name = (
-                    label.split("[/bold]")[0].split("[bold]")[-1]
-                    if "[bold]" in label
-                    else "unknown"
-                )
+                # Handle both [bold] and [bold red] formats
+                if "[bold]" in label and "[bold red]" not in label:
+                    name = label.split("[/bold]")[0].split("[bold]")[-1]
+                elif "[bold red]" in label:
+                    name = label.split("[/bold red]")[0].split("[bold red]")[-1]
+                else:
+                    name = "unknown"
                 stats["missing_list"].append(name)
             elif "packaged" in label:
                 stats["packaged"] += 1

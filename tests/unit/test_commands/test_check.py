@@ -230,6 +230,24 @@ class TestCollectStats:
         assert stats["missing"] >= 1
 
     @pytest.mark.unit
+    def test_extracts_name_from_not_found_string(self):
+        """Bug fix: correctly extracts package name from 'not found' string with [bold red] format."""
+        # This is the format returned by build_tree when a package is not found on the registry
+        tree = Tree("[bold]root[/bold] v1.0.0 • [green]✓ packaged[/green]")
+        # Add a child that represents a package not found on the registry (string format)
+        tree.add(
+            "[bold red]nonexistent-pkg[/bold red] • [red]not found on crates.io[/red]"
+        )
+
+        stats = collect_stats(tree)
+
+        assert stats["missing"] == 1
+        assert "nonexistent-pkg" in stats["missing_list"]
+        # Ensure we don't have malformed names like "[bold"
+        for name in stats["missing_list"]:
+            assert not name.startswith("["), f"Malformed package name: {name}"
+
+    @pytest.mark.unit
     def test_recursive_counting(self):
         """Critical path: counts all nodes recursively."""
         root = Tree("[bold]root[/bold] v1.0.0 • [green]✓ packaged[/green]")
