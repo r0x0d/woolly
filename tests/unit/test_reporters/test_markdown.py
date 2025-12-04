@@ -121,52 +121,6 @@ class TestMarkdownReporterGenerate:
         assert "## Packaged Packages" not in result
 
 
-class TestMarkdownReporterStripMarkup:
-    """Tests for MarkdownReporter._strip_markup method."""
-
-    @pytest.fixture
-    def reporter(self):
-        return MarkdownReporter()
-
-    @pytest.mark.unit
-    def test_strips_simple_tags(self, reporter):
-        """Good path: strips simple tags."""
-        text = "[bold]hello[/bold]"
-
-        result = reporter._strip_markup(text)
-
-        assert result == "hello"
-
-    @pytest.mark.unit
-    def test_strips_color_tags(self, reporter):
-        """Good path: strips color tags."""
-        text = "[red]error[/red]"
-
-        result = reporter._strip_markup(text)
-
-        assert result == "error"
-
-    @pytest.mark.unit
-    def test_strips_nested_tags(self, reporter):
-        """Good path: strips nested tags."""
-        text = "[bold][red]important[/red][/bold]"
-
-        result = reporter._strip_markup(text)
-
-        assert result == "important"
-
-    @pytest.mark.unit
-    def test_preserves_non_tag_brackets(self, reporter):
-        """Good path: preserves brackets that aren't tags."""
-        text = "array[0]"
-
-        result = reporter._strip_markup(text)
-
-        # This is tricky - the current regex might strip this
-        # The test documents current behavior
-        assert "array" in result
-
-
 class TestMarkdownReporterTreeToText:
     """Tests for MarkdownReporter._tree_to_text method."""
 

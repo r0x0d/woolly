@@ -16,24 +16,29 @@ Example:
             ...
 """
 
+import re
 from abc import ABC, abstractmethod
 from datetime import datetime
+from functools import cached_property
 from pathlib import Path
 from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class PackageStatus(BaseModel):
-    """Status of a single package in the dependency tree."""
+def strip_markup(text: str) -> str:
+    """
+    Strip Rich markup from text.
 
-    name: str
-    version: Optional[str] = None
-    is_packaged: bool
-    fedora_versions: list[str] = Field(default_factory=list)
-    fedora_packages: list[str] = Field(default_factory=list)
-    is_visited: bool = False
-    not_found: bool = False
+    Removes Rich markup tags like [bold], [/bold], [green], etc.
+
+    Args:
+        text: Text containing Rich markup.
+
+    Returns:
+        Plain text without markup.
+    """
+    return re.sub(r"\[/?[^\]]+\]", "", text)
 
 
 class ReportData(BaseModel):
@@ -62,12 +67,26 @@ class ReportData(BaseModel):
 
     # Full tree for detailed reports
     tree: Any  # Rich Tree object - not JSON serializable
-    packages: list[PackageStatus] = Field(default_factory=list)
 
     # Metadata
     timestamp: datetime = Field(default_factory=datetime.now)
     max_depth: int = 50
     version: Optional[str] = None
+
+    @cached_property
+    def required_missing_packages(self) -> set[str]:
+        """Get the set of required (non-optional) missing packages."""
+        return set(self.missing_packages) - set(self.optional_missing_packages)
+
+    @cached_property
+    def optional_missing_set(self) -> set[str]:
+        """Get the set of optional missing packages."""
+        return set(self.optional_missing_packages)
+
+    @cached_property
+    def unique_packaged_packages(self) -> set[str]:
+        """Get the unique set of packaged packages."""
+        return set(self.packaged_packages)
 
 
 class Reporter(ABC):
@@ -136,3 +155,59 @@ class Reporter(ABC):
         output_path = output_dir / self.get_output_filename(data)
         output_path.write_text(content)
         return output_path
+
+    # ----------------------------------------------------------------
+    # Shared tree traversal utilities for subclasses
+    # ----------------------------------------------------------------
+
+    def _get_label(self, node) -> str:
+        """
+        Extract the label text from a tree node, handling nested Trees.
+
+        Args:
+            node: A Rich Tree node or string.
+
+        Returns:
+            The label text as a string.
+        """
+        # If it's a string, return it directly
+        if isinstance(node, str):
+            return node
+
+        # Try to get label attribute (Rich Tree has this)
+        if hasattr(node, "label"):
+            label = node.label
+            # If label is None, return empty string
+            if label is None:
+                return ""
+            # If label is another Tree-like object (has its own label), recurse
+            if hasattr(label, "label"):
+                return self._get_label(label)
+            # Otherwise convert to string
+            return str(label)
+
+        # Fallback - shouldn't happen
+        return str(node)
+
+    def _get_children(self, node) -> list:
+        """
+        Get all children from a tree node, flattening nested Trees.
+
+        Args:
+            node: A Rich Tree node.
+
+        Returns:
+            List of child nodes.
+        """
+        children = []
+
+        if hasattr(node, "children"):
+            for child in node.children:
+                # If the child's label is itself a Tree, use that Tree's children
+                if hasattr(child, "label") and hasattr(child.label, "children"):
+                    # The child is a wrapper around another tree
+                    children.append(child.label)
+                else:
+                    children.append(child)
+
+        return children

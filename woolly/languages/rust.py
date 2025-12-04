@@ -7,8 +7,7 @@ Fedora repositories for Rust crate packages.
 
 from typing import Optional
 
-import httpx
-
+from woolly import http
 from woolly.cache import DEFAULT_CACHE_TTL, read_cache, write_cache
 from woolly.debug import (
     log_api_request,
@@ -19,7 +18,6 @@ from woolly.debug import (
 from woolly.languages.base import Dependency, LanguageProvider, PackageInfo
 
 CRATES_API = "https://crates.io/api/v1/crates"
-HEADERS = {"User-Agent": "woolly/0.1.0 (https://github.com/r0x0d/woolly)"}
 
 
 class RustProvider(LanguageProvider):
@@ -50,7 +48,7 @@ class RustProvider(LanguageProvider):
         log_cache_miss(self.cache_namespace, cache_key)
         url = f"{CRATES_API}/{package_name}"
         log_api_request("GET", url)
-        r = httpx.get(url, headers=HEADERS)
+        r = http.get(url)
         log_api_response(r.status_code, r.text[:500] if r.text else None)
 
         if r.status_code == 404:
@@ -91,7 +89,7 @@ class RustProvider(LanguageProvider):
         log_cache_miss(self.cache_namespace, cache_key)
         url = f"{CRATES_API}/{package_name}/{version}/dependencies"
         log_api_request("GET", url)
-        r = httpx.get(url, headers=HEADERS)
+        r = http.get(url)
         log_api_response(r.status_code, r.text[:500] if r.text else None)
 
         if r.status_code != 200:

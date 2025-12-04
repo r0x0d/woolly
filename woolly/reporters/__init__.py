@@ -6,12 +6,24 @@ To add a new format, create a module in this directory that defines a class
 inheriting from Reporter and add it to REPORTERS dict.
 """
 
+from typing import Optional
+
+from pydantic import BaseModel, Field
 from rich.console import Console
 
-from woolly.reporters.base import Reporter, ReportData, PackageStatus
-from woolly.reporters.stdout import StdoutReporter
-from woolly.reporters.markdown import MarkdownReporter
+from woolly.reporters.base import ReportData, Reporter, strip_markup
 from woolly.reporters.json import JsonReporter
+from woolly.reporters.markdown import MarkdownReporter
+from woolly.reporters.stdout import StdoutReporter
+
+
+class ReporterInfo(BaseModel):
+    """Information about an available reporter."""
+
+    format_id: str
+    description: str
+    aliases: list[str] = Field(default_factory=list)
+
 
 # Registry of available reporters
 # Key: format identifier (used in CLI)
@@ -30,7 +42,9 @@ ALIASES: dict[str, str] = {
 }
 
 
-def get_reporter(format_name: str, console: Console | None = None) -> Reporter | None:
+def get_reporter(
+    format_name: str, console: Optional[Console] = None
+) -> Optional[Reporter]:
     """
     Get an instantiated reporter for the specified format.
 
@@ -57,18 +71,24 @@ def get_reporter(format_name: str, console: Console | None = None) -> Reporter |
     return reporter_class()
 
 
-def list_reporters() -> list[tuple[str, str, list[str]]]:
+def list_reporters() -> list[ReporterInfo]:
     """
     List all available reporters.
 
     Returns:
-        List of tuples: (format_id, description, aliases)
+        List of ReporterInfo objects with format details.
     """
     result = []
     for format_id, reporter_class in REPORTERS.items():
         # Find aliases for this format
         aliases = [alias for alias, target in ALIASES.items() if target == format_id]
-        result.append((format_id, reporter_class.description, aliases))
+        result.append(
+            ReporterInfo(
+                format_id=format_id,
+                description=reporter_class.description,
+                aliases=aliases,
+            )
+        )
     return result
 
 
@@ -80,11 +100,12 @@ def get_available_formats() -> list[str]:
 __all__ = [
     "Reporter",
     "ReportData",
-    "PackageStatus",
+    "ReporterInfo",
     "StdoutReporter",
     "MarkdownReporter",
     "JsonReporter",
     "get_reporter",
     "list_reporters",
     "get_available_formats",
+    "strip_markup",
 ]

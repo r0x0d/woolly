@@ -17,8 +17,8 @@ def list_formats_cmd():
     table.add_column("Description")
     table.add_column("Aliases", style="dim")
 
-    for format_id, description, aliases in list_reporters():
-        alias_str = ", ".join(aliases) if aliases else "-"
-        table.add_row(format_id, description, alias_str)
+    for info in list_reporters():
+        alias_str = ", ".join(info.aliases) if info.aliases else "-"
+        table.add_row(info.format_id, info.description, alias_str)
 
     console.print(table)

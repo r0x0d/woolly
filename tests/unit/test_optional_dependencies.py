@@ -10,7 +10,7 @@ Tests cover:
 import pytest
 from rich.tree import Tree
 
-from woolly.commands.check import build_tree, collect_stats
+from woolly.commands.check import TreeStats, build_tree, collect_stats
 from woolly.languages.base import (
     Dependency,
     FedoraPackageStatus,
@@ -307,11 +307,11 @@ class TestCollectStatsOptional:
 
         stats = collect_stats(root)
 
-        assert stats["total"] == 4
-        assert stats["optional_total"] == 2
-        assert stats["optional_missing"] == 1
-        assert stats["optional_packaged"] == 1
-        assert len(stats["optional_missing_list"]) == 1
+        assert stats.total == 4
+        assert stats.optional_total == 2
+        assert stats.optional_missing == 1
+        assert stats.optional_packaged == 1
+        assert len(stats.optional_missing_list) == 1
 
     @pytest.mark.unit
     def test_empty_tree_stats(self):
@@ -320,10 +320,10 @@ class TestCollectStatsOptional:
 
         stats = collect_stats(root)
 
-        assert stats["total"] == 1
-        assert stats["optional_total"] == 0
-        assert stats["optional_missing"] == 0
-        assert stats["optional_packaged"] == 0
+        assert stats.total == 1
+        assert stats.optional_total == 0
+        assert stats.optional_missing == 0
+        assert stats.optional_packaged == 0
 
     @pytest.mark.unit
     def test_stats_include_string_nodes(self):
@@ -333,17 +333,18 @@ class TestCollectStatsOptional:
 
         stats = collect_stats(root)
 
-        assert stats["total"] == 2
-        assert stats["optional_total"] == 1
+        assert stats.total == 2
+        assert stats.optional_total == 1
 
     @pytest.mark.unit
-    def test_stats_has_all_required_keys(self):
-        """Good path: stats dictionary has all required keys."""
+    def test_stats_has_all_required_attributes(self):
+        """Good path: stats model has all required attributes."""
         root = Tree("[bold]root[/bold] v1.0 • [green]✓ packaged[/green]")
 
         stats = collect_stats(root)
 
-        required_keys = [
+        assert isinstance(stats, TreeStats)
+        required_attrs = [
             "total",
             "packaged",
             "missing",
@@ -354,8 +355,8 @@ class TestCollectStatsOptional:
             "optional_missing",
             "optional_missing_list",
         ]
-        for key in required_keys:
-            assert key in stats, f"Missing key: {key}"
+        for attr in required_attrs:
+            assert hasattr(stats, attr), f"Missing attribute: {attr}"
 
     @pytest.mark.unit
     def test_recursive_counting_with_optional(self):
@@ -374,9 +375,9 @@ class TestCollectStatsOptional:
 
         stats = collect_stats(root)
 
-        assert stats["total"] == 4
-        assert stats["packaged"] == 3
-        assert stats["missing"] == 1
-        assert stats["optional_total"] == 2
-        assert stats["optional_packaged"] == 1
-        assert stats["optional_missing"] == 1
+        assert stats.total == 4
+        assert stats.packaged == 3
+        assert stats.missing == 1
+        assert stats.optional_total == 2
+        assert stats.optional_packaged == 1
+        assert stats.optional_missing == 1

@@ -17,10 +17,10 @@ def list_languages_cmd():
     table.add_column("Registry")
     table.add_column("Aliases", style="dim")
 
-    for lang_id, display_name, aliases in list_providers():
-        provider = get_provider(lang_id)
+    for info in list_providers():
+        provider = get_provider(info.language_id)
         registry = provider.registry_name if provider else "Unknown"
-        alias_str = ", ".join(aliases) if aliases else "-"
-        table.add_row(f"{display_name} ({lang_id})", registry, alias_str)
+        alias_str = ", ".join(info.aliases) if info.aliases else "-"
+        table.add_row(f"{info.display_name} ({info.language_id})", registry, alias_str)
 
     console.print(table)

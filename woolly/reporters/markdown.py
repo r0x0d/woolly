@@ -4,9 +4,7 @@ Markdown report generator.
 Generates a markdown file with the full dependency analysis.
 """
 
-import re
-
-from woolly.reporters.base import Reporter, ReportData
+from woolly.reporters.base import ReportData, Reporter, strip_markup
 
 
 class MarkdownReporter(Reporter):
@@ -49,11 +47,9 @@ class MarkdownReporter(Reporter):
             lines.append(f"| Optional - Missing | {data.optional_missing} |")
         lines.append("")
 
-        # Missing packages
-        required_missing = set(data.missing_packages) - set(
-            data.optional_missing_packages
-        )
-        optional_missing = set(data.optional_missing_packages)
+        # Missing packages - use computed properties from ReportData
+        required_missing = data.required_missing_packages
+        optional_missing = data.optional_missing_set
 
         if required_missing:
             lines.append("## Missing Packages")
@@ -73,13 +69,13 @@ class MarkdownReporter(Reporter):
                 lines.append(f"- `{name}` *(optional)*")
             lines.append("")
 
-        # Packaged packages
-        if data.packaged_packages:
+        # Packaged packages - use computed property
+        if data.unique_packaged_packages:
             lines.append("## Packaged Packages")
             lines.append("")
             lines.append("The following packages are already available in Fedora:")
             lines.append("")
-            for name in sorted(set(data.packaged_packages)):
+            for name in sorted(data.unique_packaged_packages):
                 lines.append(f"- `{name}`")
             lines.append("")
 
@@ -93,53 +89,17 @@ class MarkdownReporter(Reporter):
 
         return "\n".join(lines)
 
-    def _get_label(self, node) -> str:
-        """Extract the label text from a tree node, handling nested Trees."""
-        # If it's a string, return it directly
-        if isinstance(node, str):
-            return node
-
-        # Try to get label attribute (Rich Tree has this)
-        if hasattr(node, "label"):
-            label = node.label
-            # If label is None, return empty string
-            if label is None:
-                return ""
-            # If label is another Tree-like object (has its own label), recurse
-            if hasattr(label, "label"):
-                return self._get_label(label)
-            # Otherwise convert to string
-            return str(label)
-
-        # Fallback - shouldn't happen
-        return str(node)
-
-    def _get_children(self, node) -> list:
-        """Get all children from a tree node, flattening nested Trees."""
-        children = []
-
-        if hasattr(node, "children"):
-            for child in node.children:
-                # If the child's label is itself a Tree, use that Tree's children
-                if hasattr(child, "label") and hasattr(child.label, "children"):
-                    # The child is a wrapper around another tree
-                    children.append(child.label)
-                else:
-                    children.append(child)
-
-        return children
-
     def _tree_to_text(self, tree, prefix: str = "") -> str:
         """Convert Rich Tree to plain text representation."""
         lines = []
 
-        # Get label text (strip Rich markup)
+        # Get label text (strip Rich markup) using inherited method and shared utility
         label = self._get_label(tree)
-        label = self._strip_markup(label)
+        label = strip_markup(label)
 
         lines.append(label)
 
-        # Get children
+        # Get children using inherited method
         children = self._get_children(tree)
 
         for i, child in enumerate(children):
@@ -155,8 +115,3 @@ class MarkdownReporter(Reporter):
                     lines.append(line)
 
         return "\n".join(lines)
-
-    def _strip_markup(self, text: str) -> str:
-        """Strip Rich markup from text."""
-        # Remove Rich markup tags like [bold], [/bold], [green], etc.
-        return re.sub(r"\[/?[^\]]+\]", "", text)

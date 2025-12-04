@@ -8,7 +8,7 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 
-from woolly.reporters.base import Reporter, ReportData
+from woolly.reporters.base import ReportData, Reporter
 
 
 class StdoutReporter(Reporter):
@@ -48,13 +48,10 @@ class StdoutReporter(Reporter):
         self.console.print(table)
         self.console.print()
 
-        # Print missing packages list
+        # Print missing packages list using computed properties
         if data.missing_packages:
-            # Separate required and optional missing packages
-            required_missing = set(data.missing_packages) - set(
-                data.optional_missing_packages
-            )
-            optional_missing = set(data.optional_missing_packages)
+            required_missing = data.required_missing_packages
+            optional_missing = data.optional_missing_set
 
             if required_missing:
                 self.console.print("[bold]Missing packages that need packaging:[/bold]")

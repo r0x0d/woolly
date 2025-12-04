@@ -8,9 +8,20 @@ inheriting from LanguageProvider and add it to PROVIDERS dict.
 
 from typing import Optional
 
+from pydantic import BaseModel, Field
+
 from woolly.languages.base import LanguageProvider
 from woolly.languages.python import PythonProvider
 from woolly.languages.rust import RustProvider
+
+
+class ProviderInfo(BaseModel):
+    """Information about an available language provider."""
+
+    language_id: str
+    display_name: str
+    aliases: list[str] = Field(default_factory=list)
+
 
 # Registry of available language providers
 # Key: language identifier (used in CLI)
@@ -52,21 +63,40 @@ def get_provider(language: str) -> Optional[LanguageProvider]:
     return provider_class()
 
 
-def list_providers() -> list[tuple[str, str, list[str]]]:
+def list_providers() -> list[ProviderInfo]:
     """
     List all available providers.
 
     Returns:
-        List of tuples: (language_id, display_name, aliases)
+        List of ProviderInfo objects with language details.
     """
     result = []
     for lang_id, provider_class in PROVIDERS.items():
         # Find aliases for this language
         aliases = [alias for alias, target in ALIASES.items() if target == lang_id]
-        result.append((lang_id, provider_class.display_name, aliases))
+        result.append(
+            ProviderInfo(
+                language_id=lang_id,
+                display_name=provider_class.display_name,
+                aliases=aliases,
+            )
+        )
     return result
 
 
 def get_available_languages() -> list[str]:
     """Get list of available language identifiers."""
     return list(PROVIDERS.keys())
+
+
+__all__ = [
+    "LanguageProvider",
+    "ProviderInfo",
+    "PythonProvider",
+    "RustProvider",
+    "get_provider",
+    "list_providers",
+    "get_available_languages",
+    "PROVIDERS",
+    "ALIASES",
+]
