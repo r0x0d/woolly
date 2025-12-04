@@ -1,54 +1,115 @@
-# Woolly
+# 🐑 Woolly
 
-Check if package dependencies are available in Fedora. Supports multiple languages including Rust and Python.
+**Check if package dependencies are available in Fedora.**
 
-> This tool is merely a starting point for figuring out how much packaging
-> effort you will need to bring a package over to Fedora.
+Woolly analyzes package dependencies from various language ecosystems and checks their availability in Fedora repositories, helping packagers estimate the effort needed to bring a package to Fedora.
 
-## What does "woolly" means?
+> ⚠️ **Experimental Software**
+>
+> This project is still experimental and may not get things right all the time.
+> Results should be verified manually, especially for complex dependency trees.
+> Platform-specific dependencies (like `windows-*` crates) may be flagged as missing
+> even though they're not needed on Linux.
 
-Nothing. I just liked the name.
+## What does "woolly" mean?
+
+Nothing. I just liked the name. 🐑
+
+## Features
+
+- **Multi-language support** — Analyze dependencies from Rust (crates.io) and Python (PyPI)
+- **Multiple output formats** — Console output, JSON, and Markdown reports
+- **Optional dependency tracking** — Optionally include and separately track optional dependencies
+- **Smart caching** — Caches API responses and dnf queries to speed up repeated analyses
+- **Progress tracking** — Real-time progress bar showing analysis status
+- **Debug logging** — Verbose logging mode for troubleshooting
+- **Extensible architecture** — Easy to add new languages and report formats
 
 ## Supported Languages
 
-| Language | Registry | CLI Flag |
-|----------|----------|----------|
-| Rust | crates.io | `--lang rust` (default) |
-| Python | PyPI | `--lang python` |
+| Language | Registry  | CLI Flag              | Aliases                 |
+|----------|-----------|-----------------------|-------------------------|
+| Rust     | crates.io | `--lang rust`         | `-l rs`, `-l crate`     |
+| Python   | PyPI      | `--lang python`       | `-l py`, `-l pypi`      |
 
-More languages can be easily added by implementing the `LanguageProvider` interface.
+## Output Formats
+
+| Format   | Description                      | CLI Flag             | Aliases              |
+|----------|----------------------------------|----------------------|----------------------|
+| stdout   | Rich console output (default)    | `--report stdout`    | `-r console`         |
+| json     | JSON file for programmatic use   | `--report json`      |                      |
+| markdown | Markdown file for documentation  | `--report markdown`  | `-r md`              |
 
 ## Installation
 
 ```bash
-# Using uv
+# Using uv (recommended)
 uv pip install .
 
-# Or run directly
+# Or run directly without installing
 uv run woolly --help
+
+# Using pip
+pip install .
 ```
+
+### Requirements
+
+- Python 3.10+
+- `dnf` available on the system (for Fedora package queries)
 
 ## Usage
 
-```bash
-# Check a Rust crate (default)
-woolly ripgrep
+### Basic Usage
 
-# Check a Rust crate explicitly
-woolly --lang rust serde
+```bash
+# Check a Rust crate (default language)
+woolly check ripgrep
 
 # Check a Python package
-woolly --lang python requests
+woolly check --lang python requests
 
 # Use language aliases
-woolly -l py flask
-woolly -l rs tokio
+woolly check -l py flask
+woolly check -l rs tokio
+```
 
+### Options
+
+```bash
+# Check a specific version
+woolly check serde --version 1.0.200
+
+# Include optional dependencies in the analysis
+woolly check --optional requests -l python
+
+# Limit recursion depth
+woolly check --max-depth 10 tokio
+
+# Disable progress bar
+woolly check --no-progress serde
+
+# Enable debug logging
+woolly check --debug flask -l py
+
+# Output as JSON
+woolly check --report json serde
+
+# Output as Markdown
+woolly check -r md requests -l py
+```
+
+### Other Commands
+
+```bash
 # List available languages
-woolly --list-languages
+woolly list-languages
 
-# Clear cache
-woolly --clear-cache
+# List available output formats
+woolly list-formats
+
+# Clear the cache
+woolly clear-cache
 ```
 
 ## Example Output
@@ -56,7 +117,7 @@ woolly --clear-cache
 ### Rust
 
 ```bash
-$ woolly cliclack
+$ woolly check cliclack
 
 Analyzing Rust package: cliclack
 Registry: crates.io
@@ -64,7 +125,7 @@ Cache directory: /home/user/.cache/woolly
 
   Analyzing Rust dependencies ━━━━━━━━━━━━━━━━━ 100% • 0:00:15 complete!
 
-  Dependency Summary for 'cliclack' (Rust)   
+  Dependency Summary for 'cliclack' (Rust)
 ╭────────────────────────────┬───────╮
 │ Metric                     │ Value │
 ├────────────────────────────┼───────┤
@@ -78,8 +139,8 @@ Missing packages that need packaging:
 
 Dependency Tree:
 cliclack v0.3.6 • ✗ not packaged
-├── console v0.16.1 • ✓ packaged (0.16.1) 
-│   ├── encode_unicode v1.0.0 • ✓ packaged (1.0.0) 
+├── console v0.16.1 • ✓ packaged (0.16.1)
+│   ├── encode_unicode v1.0.0 • ✓ packaged (1.0.0)
 │   └── windows-sys v0.61.2 • ✗ not packaged
 ...
 ```
@@ -87,7 +148,7 @@ cliclack v0.3.6 • ✗ not packaged
 ### Python
 
 ```bash
-$ woolly --lang python requests
+$ woolly check --lang python requests
 
 Analyzing Python package: requests
 Registry: PyPI
@@ -95,7 +156,7 @@ Cache directory: /home/user/.cache/woolly
 
   Analyzing Python dependencies ━━━━━━━━━━━━━━ 100% • 0:00:05 complete!
 
-  Dependency Summary for 'requests' (Python)   
+  Dependency Summary for 'requests' (Python)
 ╭────────────────────────────┬───────╮
 │ Metric                     │ Value │
 ├────────────────────────────┼───────┤
@@ -112,6 +173,25 @@ requests v2.32.3 • ✓ packaged (2.32.3) [python3-requests]
 └── certifi v2024.8.30 • ✓ packaged (2024.8.30) [python3-certifi]
 ```
 
+### With Optional Dependencies
+
+```bash
+$ woolly check --lang python --optional flask
+
+  Dependency Summary for 'flask' (Python)
+╭────────────────────────────┬───────╮
+│ Metric                     │ Value │
+├────────────────────────────┼───────┤
+│ Total dependencies checked │    15 │
+│ Packaged in Fedora         │    12 │
+│ Missing from Fedora        │     3 │
+│                            │       │
+│ Optional dependencies      │     4 │
+│   ├─ Packaged              │     2 │
+│   └─ Missing               │     2 │
+╰────────────────────────────┴───────╯
+```
+
 ## Adding a New Language
 
 To add support for a new language, create a new provider in `woolly/languages/`:
@@ -120,40 +200,35 @@ To add support for a new language, create a new provider in `woolly/languages/`:
 # woolly/languages/go.py
 from typing import Optional
 
-import requests
-
-from woolly.cache import DEFAULT_CACHE_TTL, read_cache, write_cache
 from woolly.languages.base import Dependency, LanguageProvider, PackageInfo
 
 
 class GoProvider(LanguageProvider):
     """Provider for Go modules."""
-    
+
     # Required class attributes
     name = "go"
     display_name = "Go"
     registry_name = "Go Modules"
     fedora_provides_prefix = "golang"
     cache_namespace = "go"
-    
-    # Only these two methods are required to implement:
-    
+
+    # Required methods to implement:
+
     def fetch_package_info(self, package_name: str) -> Optional[PackageInfo]:
         """Fetch package info from proxy.golang.org."""
-        # Your implementation here
         ...
-    
+
     def fetch_dependencies(self, package_name: str, version: str) -> list[Dependency]:
         """Fetch dependencies from go.mod."""
-        # Your implementation here
         ...
-    
+
     # Optional: Override these if your language has special naming conventions
-    
+
     def normalize_package_name(self, package_name: str) -> str:
         """Normalize package name for Fedora lookup."""
         return package_name
-    
+
     def get_alternative_names(self, package_name: str) -> list[str]:
         """Alternative names to try if package not found."""
         return []
@@ -176,8 +251,42 @@ ALIASES: dict[str, str] = {
 }
 ```
 
+## Adding a New Output Format
+
+To add a new output format, create a reporter in `woolly/reporters/`:
+
+```python
+# woolly/reporters/html.py
+from woolly.reporters.base import Reporter, ReportData
+
+
+class HtmlReporter(Reporter):
+    """HTML report with interactive tree."""
+
+    name = "html"
+    description = "HTML report with interactive dependency tree"
+    file_extension = "html"
+    writes_to_file = True
+
+    def generate(self, data: ReportData) -> str:
+        """Generate HTML content."""
+        ...
+```
+
+Then register it in `woolly/reporters/__init__.py`.
+
 ## Notes
 
-Keep in mind that you may not need all of the packages to be present in Fedora.
-For example, Rust crates may have platform-specific dependencies (like `windows*` crates)
-that aren't used on Linux.
+- Results should be verified manually — some packages may have different names in Fedora
+- Platform-specific dependencies (like `windows-*` crates) are shown as missing but aren't needed on Linux
+- The tool uses `dnf repoquery` to check Fedora packages, so it must run on a Fedora system or have access to Fedora repos
+- Cache is stored in `~/.cache/woolly` and can be cleared with `woolly clear-cache`
+
+## License
+
+MIT License — see [LICENSE](LICENSE) for details.
+
+## Credits
+
+- **[Rodolfo Olivieri (@r0x0d)](https://github.com/r0x0d)** — Creator and maintainer
+- **[Claude](https://claude.ai)** — AI pair programmer by [Anthropic](https://anthropic.com)
