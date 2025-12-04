@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "woolly"
-description = "Recursively search for RPMs in Fedora for Rust crates."
+description = "Check if package dependencies are available in Fedora. Supports Rust, Python, and more."
 readme = "README.md"
 authors = [
     { name = "Rodolfo Olivieri", email = "rodolfo.olivieri3@gmail.com"}
@@ -12,7 +12,9 @@ authors = [
 dynamic = ["version"]
 requires-python = ">=3.10"
 dependencies = [
-    "requests>=2.32.5",
+    "cyclopts>=4.3.0",
+    "httpx>=0.28.0",
+    "pydantic>=2.10.0",
     "rich>=14.2.0",
 ]
 classifiers = [
@@ -48,3 +50,41 @@ packages = ["woolly"]
 
 [tool.hatch.version]
 source = "vcs"
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.407",
+    "ruff>=0.14.7",
+]
+
+test = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.14.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "unit: Unit tests with mocking",
+    "functional: Functional tests without mocking (may require network)",
+    "slow: Slow tests that make real API calls",
+]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["woolly"]
+branch = true
+omit = [
+    "woolly/__main__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]

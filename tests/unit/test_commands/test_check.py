@@ -1,0 +1,258 @@
+"""
+Unit tests for woolly.commands.check module.
+
+Tests cover:
+- Good path: tree building, stats collection
+- Critical path: dependency traversal, visited tracking
+- Bad path: unknown languages, max depth
+"""
+
+from unittest.mock import MagicMock
+
+import pytest
+from rich.tree import Tree
+
+from woolly.commands.check import build_tree, collect_stats
+from woolly.languages.base import (
+    Dependency,
+    FedoraPackageStatus,
+    LanguageProvider,
+    PackageInfo,
+)
+
+
+class MockProvider(LanguageProvider):
+    """Mock provider for testing."""
+
+    name = "mock"
+    display_name = "Mock"
+    registry_name = "mock.io"
+    fedora_provides_prefix = "mock"
+    cache_namespace = "mock"
+
+    def __init__(self):
+        self.packages = {}
+        self.dependencies = {}
+        self.fedora_status = {}
+
+    def fetch_package_info(self, package_name: str):
+        return self.packages.get(package_name)
+
+    def fetch_dependencies(self, package_name: str, version: str):
+        return self.dependencies.get(f"{package_name}:{version}", [])
+
+    def check_fedora_packaging(self, package_name: str):
+        return self.fedora_status.get(
+            package_name, FedoraPackageStatus(is_packaged=False)
+        )
+
+
+class TestBuildTree:
+    """Tests for build_tree function."""
+
+    @pytest.fixture
+    def provider(self):
+        """Create a mock provider."""
+        p = MockProvider()
+        # Set up a simple package
+        p.packages["root"] = PackageInfo(name="root", latest_version="1.0.0")
+        p.fedora_status["root"] = FedoraPackageStatus(
+            is_packaged=True, versions=["1.0.0"], package_names=["mock-root"]
+        )
+        return p
+
+    @pytest.mark.unit
+    def test_returns_tree_for_packaged_package(self, provider):
+        """Good path: returns Tree for packaged package."""
+        tree = build_tree(provider, "root")
+
+        assert isinstance(tree, Tree)
+        label = str(tree.label)
+        assert "root" in label
+        assert "packaged" in label
+
+    @pytest.mark.unit
+    def test_returns_tree_for_not_packaged_package(self, provider):
+        """Good path: returns Tree for not packaged package."""
+        provider.packages["missing"] = PackageInfo(
+            name="missing", latest_version="1.0.0"
+        )
+        provider.fedora_status["missing"] = FedoraPackageStatus(is_packaged=False)
+
+        tree = build_tree(provider, "missing")
+
+        assert isinstance(tree, Tree)
+        label = str(tree.label)
+        assert "not packaged" in label
+
+    @pytest.mark.unit
+    def test_returns_string_for_not_found_package(self, provider):
+        """Bad path: returns string for package not in registry."""
+        result = build_tree(provider, "nonexistent")
+
+        assert isinstance(result, str)
+        assert "not found" in result
+
+    @pytest.mark.unit
+    def test_tracks_visited_packages(self, provider):
+        """Critical path: tracks visited packages."""
+        visited = {}
+
+        build_tree(provider, "root", visited=visited)
+
+        assert "root" in visited
+        assert visited["root"][0] is True  # is_packaged
+
+    @pytest.mark.unit
+    def test_returns_visited_marker_for_duplicate(self, provider):
+        """Critical path: returns visited marker for already-visited packages."""
+        visited = {"root": (True, "1.0.0")}
+
+        result = build_tree(provider, "root", visited=visited)
+
+        assert isinstance(result, str)
+        assert "already visited" in result
+
+    @pytest.mark.unit
+    def test_respects_max_depth(self, provider):
+        """Critical path: respects max depth limit."""
+        result = build_tree(provider, "root", depth=100, max_depth=50)
+
+        assert isinstance(result, str)
+        assert "max depth" in result
+
+    @pytest.mark.unit
+    def test_recurses_into_dependencies(self, provider):
+        """Critical path: recurses into dependencies."""
+        # Set up package with dependency
+        provider.packages["parent"] = PackageInfo(name="parent", latest_version="1.0.0")
+        provider.packages["child"] = PackageInfo(name="child", latest_version="2.0.0")
+        provider.dependencies["parent:1.0.0"] = [
+            Dependency(name="child", version_requirement="^2.0", kind="normal")
+        ]
+        provider.fedora_status["parent"] = FedoraPackageStatus(
+            is_packaged=True, versions=["1.0.0"]
+        )
+        provider.fedora_status["child"] = FedoraPackageStatus(
+            is_packaged=True, versions=["2.0.0"]
+        )
+
+        tree = build_tree(provider, "parent")
+
+        # Should have a child
+        assert isinstance(tree, Tree)
+        assert len(tree.children) > 0
+
+    @pytest.mark.unit
+    def test_uses_provided_version(self, provider):
+        """Good path: uses provided version instead of latest."""
+        provider.packages["pkg"] = PackageInfo(name="pkg", latest_version="2.0.0")
+        provider.fedora_status["pkg"] = FedoraPackageStatus(
+            is_packaged=True, versions=["1.0.0"]
+        )
+
+        tree = build_tree(provider, "pkg", version="1.0.0")
+
+        assert isinstance(tree, Tree)
+        label = str(tree.label)
+        assert "1.0.0" in label
+
+    @pytest.mark.unit
+    def test_updates_progress_tracker(self, provider):
+        """Good path: updates progress tracker when provided."""
+        tracker = MagicMock()
+        provider.packages["pkg"] = PackageInfo(name="pkg", latest_version="1.0.0")
+        provider.fedora_status["pkg"] = FedoraPackageStatus(
+            is_packaged=True, versions=["1.0.0"]
+        )
+
+        build_tree(provider, "pkg", tracker=tracker)
+
+        tracker.update.assert_called()
+
+
+class TestCollectStats:
+    """Tests for collect_stats function."""
+
+    @pytest.mark.unit
+    def test_counts_packaged(self):
+        """Good path: counts packaged packages."""
+        tree = Tree("[bold]root[/bold] v1.0.0 • [green]✓ packaged[/green]")
+
+        stats = collect_stats(tree)
+
+        assert stats["packaged"] >= 1
+
+    @pytest.mark.unit
+    def test_counts_missing(self):
+        """Good path: counts missing packages."""
+        tree = Tree("[bold]root[/bold] v1.0.0 • [red]✗ not packaged[/red]")
+
+        stats = collect_stats(tree)
+
+        assert stats["missing"] >= 1
+
+    @pytest.mark.unit
+    def test_collects_missing_list(self):
+        """Good path: collects list of missing packages."""
+        tree = Tree("[bold]missing-pkg[/bold] v1.0.0 • [red]✗ not packaged[/red]")
+
+        stats = collect_stats(tree)
+
+        assert len(stats["missing_list"]) >= 1
+
+    @pytest.mark.unit
+    def test_collects_packaged_list(self):
+        """Good path: collects list of packaged packages."""
+        tree = Tree("[bold]pkg[/bold] v1.0.0 • [green]✓ packaged[/green]")
+
+        stats = collect_stats(tree)
+
+        assert len(stats["packaged_list"]) >= 1
+
+    @pytest.mark.unit
+    def test_handles_string_children(self):
+        """Good path: handles string children (visited markers)."""
+        tree = Tree("[bold]root[/bold]")
+        tree.add("[dim]child[/dim] • [green]✓[/green] (already visited)")
+
+        stats = collect_stats(tree)
+
+        assert stats["total"] >= 1
+
+    @pytest.mark.unit
+    def test_counts_not_found_as_missing(self):
+        """Good path: counts 'not found' as missing."""
+        tree = Tree("[bold]unknown[/bold] • [red]not found on registry[/red]")
+
+        stats = collect_stats(tree)
+
+        assert stats["missing"] >= 1
+
+    @pytest.mark.unit
+    def test_recursive_counting(self):
+        """Critical path: counts all nodes recursively."""
+        root = Tree("[bold]root[/bold] v1.0.0 • [green]✓ packaged[/green]")
+        child1 = Tree("[bold]child1[/bold] v1.0.0 • [green]✓ packaged[/green]")
+        child2 = Tree("[bold]child2[/bold] v1.0.0 • [red]✗ not packaged[/red]")
+        root.children.append(child1)
+        root.children.append(child2)
+
+        stats = collect_stats(root)
+
+        assert stats["total"] == 3
+        assert stats["packaged"] == 2
+        assert stats["missing"] == 1
+
+    @pytest.mark.unit
+    def test_initializes_stats_if_not_provided(self):
+        """Good path: initializes stats dictionary if not provided."""
+        tree = Tree("[bold]pkg[/bold]")
+
+        stats = collect_stats(tree)
+
+        assert "total" in stats
+        assert "packaged" in stats
+        assert "missing" in stats
+        assert "missing_list" in stats
+        assert "packaged_list" in stats

@@ -1,0 +1,111 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: Unit Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --group test
+
+      - name: Run unit tests with coverage
+        run: uv run pytest tests/unit --cov=woolly --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+          env_vars: OS,PYTHON
+          disable_search: true
+          flags: unit
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  functional-tests:
+    name: Functional Tests (Fedora)
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:latest
+
+    steps:
+      - name: Install system dependencies
+        run: |
+          dnf install -y \
+            git \
+            python3 \
+            python3-pip \
+            dnf-plugins-core \
+            findutils
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv sync --group test
+
+      - name: Run fast functional tests
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv run pytest tests/functional --cov=woolly --cov-report=xml --cov-report=term-missing -v --tb=short -m "not slow"
+
+      - name: Run slow functional tests (API + Fedora integration)
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv run pytest tests/functional --cov=woolly --cov-report=xml --cov-report=term-missing -v --tb=short -m "slow"
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+          env_vars: OS,PYTHON
+          disable_search: true
+          flags: functional
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  all-tests-pass:
+    name: All Tests Pass
+    runs-on: ubuntu-latest
+    needs: [unit-tests, functional-tests]
+    if: always()
+    steps:
+      - name: Check all jobs passed
+        run: |
+          if [[ "${{ needs.unit-tests.result }}" != "success" ]] || \
+             [[ "${{ needs.functional-tests.result }}" != "success" ]]; then
+            echo "Some tests failed"
+            echo "  unit-tests: ${{ needs.unit-tests.result }}"
+            echo "  functional-tests: ${{ needs.functional-tests.result }}"
+            exit 1
+          fi
+          echo "All tests passed!"
