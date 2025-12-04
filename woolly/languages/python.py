@@ -141,7 +141,8 @@ class PythonProvider(LanguageProvider):
 
         if "extra ==" in req_string or "extra==" in req_string:
             is_optional = True
-            kind = "dev"  # Treat extras as dev dependencies
+            # Keep kind as "normal" so optional dependencies can be included
+            # when --optional flag is used
 
         # Extract the package name and version requirement
         # Handle environment markers (everything after ';')

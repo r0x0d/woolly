@@ -133,20 +133,24 @@ class LanguageProvider(ABC):
         return info.latest_version
 
     def get_normal_dependencies(
-        self, package_name: str, version: Optional[str] = None
-    ) -> list[tuple[str, str]]:
+        self,
+        package_name: str,
+        version: Optional[str] = None,
+        include_optional: bool = False,
+    ) -> list[tuple[str, str, bool]]:
         """
-        Get non-optional, runtime dependencies for a package.
+        Get runtime dependencies for a package.
 
         This method filters dependencies to only include normal (runtime)
-        dependencies that are not optional.
+        dependencies. By default, optional dependencies are excluded.
 
         Args:
             package_name: The name of the package.
             version: Specific version, or None for latest.
+            include_optional: If True, include optional dependencies.
 
         Returns:
-            List of tuples: (dependency_name, version_requirement)
+            List of tuples: (dependency_name, version_requirement, is_optional)
         """
         if version is None:
             version = self.get_latest_version(package_name)
@@ -155,9 +159,9 @@ class LanguageProvider(ABC):
 
         deps = self.fetch_dependencies(package_name, version)
         return [
-            (d.name, d.version_requirement)
+            (d.name, d.version_requirement, d.optional)
             for d in deps
-            if d.kind == "normal" and not d.optional
+            if d.kind == "normal" and (include_optional or not d.optional)
         ]
 
     def get_fedora_provides_pattern(self, package_name: str) -> str:

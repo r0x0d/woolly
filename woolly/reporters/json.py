@@ -30,13 +30,22 @@ class JsonReporter(Reporter):
                 "registry": data.registry,
                 "version": data.version,
                 "max_depth": data.max_depth,
+                "include_optional": data.include_optional,
             },
             "summary": {
                 "total_dependencies": data.total_dependencies,
                 "packaged_count": data.packaged_count,
                 "missing_count": data.missing_count,
+                "optional": {
+                    "total": data.optional_total,
+                    "packaged": data.optional_packaged,
+                    "missing": data.optional_missing,
+                },
             },
-            "missing_packages": sorted(set(data.missing_packages)),
+            "missing_packages": sorted(
+                set(data.missing_packages) - set(data.optional_missing_packages)
+            ),
+            "missing_optional_packages": sorted(set(data.optional_missing_packages)),
             "packaged_packages": sorted(set(data.packaged_packages)),
             "dependency_tree": self._tree_to_dict(data.tree),
         }
@@ -101,9 +110,15 @@ class JsonReporter(Reporter):
             "raw": clean_label.strip(),
         }
 
+        # Check if this is an optional dependency
+        result["optional"] = "(optional)" in clean_label
+
         # Try to extract package name and version
-        # Pattern: "package_name vX.Y.Z • status"
-        match = re.match(r"^(\S+)\s*(?:v([\d.]+))?\s*•\s*(.+)$", clean_label.strip())
+        # Pattern: "package_name vX.Y.Z (optional) • status" or "package_name vX.Y.Z • status"
+        match = re.match(
+            r"^(\S+)\s*(?:v([\d.]+))?\s*(?:\(optional\))?\s*•\s*(.+)$",
+            clean_label.strip(),
+        )
         if match:
             result["name"] = match.group(1)
             if match.group(2):

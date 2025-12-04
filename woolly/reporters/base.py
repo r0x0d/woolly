@@ -53,6 +53,13 @@ class ReportData(BaseModel):
     missing_packages: list[str] = Field(default_factory=list)
     packaged_packages: list[str] = Field(default_factory=list)
 
+    # Optional dependency statistics
+    include_optional: bool = False
+    optional_total: int = 0
+    optional_packaged: int = 0
+    optional_missing: int = 0
+    optional_missing_packages: list[str] = Field(default_factory=list)
+
     # Full tree for detailed reports
     tree: Any  # Rich Tree object - not JSON serializable
     packages: list[PackageStatus] = Field(default_factory=list)

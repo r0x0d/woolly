@@ -201,7 +201,9 @@ class TestPythonProviderParseRequirement:
 
         assert dep.name == "pysocks"  # Normalized
         assert dep.optional is True
-        assert dep.kind == "dev"
+        assert (
+            dep.kind == "normal"
+        )  # Keep as normal so --optional flag can include them
 
     @pytest.mark.unit
     def test_requirement_with_python_version_marker(self, provider):
