@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from woolly.reporters.json import JsonReporter
+from woolly.reporters.json import JsonReporter, TreeNodeData
 
 
 class TestJsonReporterAttributes:
@@ -110,6 +110,15 @@ class TestJsonReporterParseLabel:
         return JsonReporter()
 
     @pytest.mark.unit
+    def test_returns_tree_node_data_model(self, reporter):
+        """Good path: returns TreeNodeData model."""
+        label = "[bold]test[/bold]"
+
+        result = reporter._parse_label(label)
+
+        assert isinstance(result, TreeNodeData)
+
+    @pytest.mark.unit
     def test_parses_packaged_label(self, reporter):
         """Good path: parses packaged package label."""
         # Note: Rich markup like [dim cyan] gets stripped, so package names
@@ -118,10 +127,10 @@ class TestJsonReporterParseLabel:
 
         result = reporter._parse_label(label)
 
-        assert result["name"] == "serde"
-        assert result["version"] == "1.0.200"
-        assert result["status"] == "packaged"
-        assert "1.0.200" in result.get("fedora_versions", [])
+        assert result.name == "serde"
+        assert result.version == "1.0.200"
+        assert result.status == "packaged"
+        assert "1.0.200" in result.fedora_versions
 
     @pytest.mark.unit
     def test_parses_not_packaged_label(self, reporter):
@@ -130,8 +139,8 @@ class TestJsonReporterParseLabel:
 
         result = reporter._parse_label(label)
 
-        assert result["name"] == "missing-pkg"
-        assert result["status"] == "not_packaged"
+        assert result.name == "missing-pkg"
+        assert result.status == "not_packaged"
 
     @pytest.mark.unit
     def test_parses_visited_label(self, reporter):
@@ -140,8 +149,8 @@ class TestJsonReporterParseLabel:
 
         result = reporter._parse_label(label)
 
-        assert result["status"] == "visited"
-        assert result["is_packaged"] is True
+        assert result.status == "visited"
+        assert result.is_packaged is True
 
     @pytest.mark.unit
     def test_parses_not_found_label(self, reporter):
@@ -150,7 +159,7 @@ class TestJsonReporterParseLabel:
 
         result = reporter._parse_label(label)
 
-        assert result["status"] == "not_found"
+        assert result.status == "not_found"
 
     @pytest.mark.unit
     def test_parses_max_depth_label(self, reporter):
@@ -159,7 +168,7 @@ class TestJsonReporterParseLabel:
 
         result = reporter._parse_label(label)
 
-        assert result["status"] == "max_depth_reached"
+        assert result.status == "max_depth_reached"
 
     @pytest.mark.unit
     def test_strips_rich_markup(self, reporter):
@@ -168,5 +177,5 @@ class TestJsonReporterParseLabel:
 
         result = reporter._parse_label(label)
 
-        assert "[" not in result["raw"]
-        assert "]" not in result["raw"]
+        assert "[" not in result.raw
+        assert "]" not in result.raw

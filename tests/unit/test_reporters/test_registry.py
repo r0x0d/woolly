@@ -15,6 +15,7 @@ from woolly.reporters import (
     REPORTERS,
     JsonReporter,
     MarkdownReporter,
+    ReporterInfo,
     StdoutReporter,
     get_available_formats,
     get_reporter,
@@ -110,32 +111,31 @@ class TestListReporters:
     """Tests for list_reporters function."""
 
     @pytest.mark.unit
-    def test_returns_list_of_tuples(self):
-        """Good path: returns list of tuples."""
+    def test_returns_list_of_reporter_info(self):
+        """Good path: returns list of ReporterInfo models."""
         reporters = list_reporters()
 
         assert isinstance(reporters, list)
         assert len(reporters) >= 3  # At least stdout, json, markdown
 
         for item in reporters:
-            assert isinstance(item, tuple)
-            assert len(item) == 3  # (id, description, aliases)
+            assert isinstance(item, ReporterInfo)
 
     @pytest.mark.unit
     def test_includes_stdout(self):
         """Good path: includes stdout reporter."""
         reporters = list_reporters()
 
-        stdout_entry = next((r for r in reporters if r[0] == "stdout"), None)
+        stdout_entry = next((r for r in reporters if r.format_id == "stdout"), None)
         assert stdout_entry is not None
-        assert "console" in stdout_entry[2]  # Has console alias
+        assert "console" in stdout_entry.aliases
 
     @pytest.mark.unit
     def test_includes_json(self):
         """Good path: includes JSON reporter."""
         reporters = list_reporters()
 
-        json_entry = next((r for r in reporters if r[0] == "json"), None)
+        json_entry = next((r for r in reporters if r.format_id == "json"), None)
         assert json_entry is not None
 
     @pytest.mark.unit
@@ -143,9 +143,9 @@ class TestListReporters:
         """Good path: includes Markdown reporter."""
         reporters = list_reporters()
 
-        md_entry = next((r for r in reporters if r[0] == "markdown"), None)
+        md_entry = next((r for r in reporters if r.format_id == "markdown"), None)
         assert md_entry is not None
-        assert "md" in md_entry[2]  # Has md alias
+        assert "md" in md_entry.aliases
 
 
 class TestGetAvailableFormats:

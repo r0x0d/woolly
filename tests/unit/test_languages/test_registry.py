@@ -12,6 +12,7 @@ import pytest
 from woolly.languages import (
     ALIASES,
     PROVIDERS,
+    ProviderInfo,
     get_available_languages,
     get_provider,
     list_providers,
@@ -102,36 +103,35 @@ class TestListProviders:
     """Tests for list_providers function."""
 
     @pytest.mark.unit
-    def test_returns_list_of_tuples(self):
-        """Good path: returns list of tuples."""
+    def test_returns_list_of_provider_info(self):
+        """Good path: returns list of ProviderInfo models."""
         providers = list_providers()
 
         assert isinstance(providers, list)
         assert len(providers) >= 2  # At least rust and python
 
         for item in providers:
-            assert isinstance(item, tuple)
-            assert len(item) == 3  # (id, display_name, aliases)
+            assert isinstance(item, ProviderInfo)
 
     @pytest.mark.unit
     def test_includes_rust(self):
         """Good path: includes Rust provider."""
         providers = list_providers()
 
-        rust_entry = next((p for p in providers if p[0] == "rust"), None)
+        rust_entry = next((p for p in providers if p.language_id == "rust"), None)
         assert rust_entry is not None
-        assert rust_entry[1] == "Rust"
-        assert "rs" in rust_entry[2]
+        assert rust_entry.display_name == "Rust"
+        assert "rs" in rust_entry.aliases
 
     @pytest.mark.unit
     def test_includes_python(self):
         """Good path: includes Python provider."""
         providers = list_providers()
 
-        python_entry = next((p for p in providers if p[0] == "python"), None)
+        python_entry = next((p for p in providers if p.language_id == "python"), None)
         assert python_entry is not None
-        assert python_entry[1] == "Python"
-        assert "py" in python_entry[2]
+        assert python_entry.display_name == "Python"
+        assert "py" in python_entry.aliases
 
 
 class TestGetAvailableLanguages:

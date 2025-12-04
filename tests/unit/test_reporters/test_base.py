@@ -11,46 +11,7 @@ from datetime import datetime
 import pytest
 from rich.tree import Tree
 
-from woolly.reporters.base import PackageStatus, Reporter, ReportData
-
-
-class TestPackageStatus:
-    """Tests for PackageStatus model."""
-
-    @pytest.mark.unit
-    def test_required_fields(self):
-        """Good path: PackageStatus with required fields."""
-        status = PackageStatus(name="test-pkg", is_packaged=True)
-
-        assert status.name == "test-pkg"
-        assert status.is_packaged is True
-
-    @pytest.mark.unit
-    def test_default_values(self):
-        """Good path: default values are correct."""
-        status = PackageStatus(name="test", is_packaged=False)
-
-        assert status.version is None
-        assert status.fedora_versions == []
-        assert status.fedora_packages == []
-        assert status.is_visited is False
-        assert status.not_found is False
-
-    @pytest.mark.unit
-    def test_all_fields(self):
-        """Good path: all fields can be set."""
-        status = PackageStatus(
-            name="serde",
-            version="1.0.200",
-            is_packaged=True,
-            fedora_versions=["1.0.0", "1.0.200"],
-            fedora_packages=["rust-serde"],
-            is_visited=True,
-            not_found=False,
-        )
-
-        assert status.version == "1.0.200"
-        assert "1.0.200" in status.fedora_versions
+from woolly.reporters.base import Reporter, ReportData, strip_markup
 
 
 class TestReportData:
@@ -90,7 +51,6 @@ class TestReportData:
 
         assert data.missing_packages == []
         assert data.packaged_packages == []
-        assert data.packages == []
         assert data.max_depth == 50
         assert data.version is None
         assert isinstance(data.timestamp, datetime)
@@ -112,6 +72,86 @@ class TestReportData:
         after = datetime.now()
 
         assert before <= data.timestamp <= after
+
+    @pytest.mark.unit
+    def test_required_missing_packages_property(self):
+        """Good path: required_missing_packages computed property works."""
+        tree = Tree("root")
+        data = ReportData(
+            root_package="test",
+            language="Rust",
+            registry="crates.io",
+            total_dependencies=3,
+            packaged_count=1,
+            missing_count=2,
+            missing_packages=["pkg-a", "pkg-b", "optional-pkg"],
+            optional_missing_packages=["optional-pkg"],
+            tree=tree,
+        )
+
+        assert data.required_missing_packages == {"pkg-a", "pkg-b"}
+
+    @pytest.mark.unit
+    def test_optional_missing_set_property(self):
+        """Good path: optional_missing_set computed property works."""
+        tree = Tree("root")
+        data = ReportData(
+            root_package="test",
+            language="Rust",
+            registry="crates.io",
+            total_dependencies=2,
+            packaged_count=0,
+            missing_count=2,
+            optional_missing_packages=["opt-a", "opt-b"],
+            tree=tree,
+        )
+
+        assert data.optional_missing_set == {"opt-a", "opt-b"}
+
+    @pytest.mark.unit
+    def test_unique_packaged_packages_property(self):
+        """Good path: unique_packaged_packages computed property works."""
+        tree = Tree("root")
+        data = ReportData(
+            root_package="test",
+            language="Rust",
+            registry="crates.io",
+            total_dependencies=3,
+            packaged_count=3,
+            missing_count=0,
+            packaged_packages=["pkg-a", "pkg-b", "pkg-a"],  # duplicates
+            tree=tree,
+        )
+
+        assert data.unique_packaged_packages == {"pkg-a", "pkg-b"}
+
+
+class TestStripMarkup:
+    """Tests for strip_markup utility function."""
+
+    @pytest.mark.unit
+    def test_strips_bold_tags(self):
+        """Good path: strips bold tags."""
+        result = strip_markup("[bold]text[/bold]")
+        assert result == "text"
+
+    @pytest.mark.unit
+    def test_strips_color_tags(self):
+        """Good path: strips color tags."""
+        result = strip_markup("[red]error[/red] and [green]success[/green]")
+        assert result == "error and success"
+
+    @pytest.mark.unit
+    def test_strips_nested_tags(self):
+        """Good path: strips nested tags."""
+        result = strip_markup("[bold][red]important[/red][/bold]")
+        assert result == "important"
+
+    @pytest.mark.unit
+    def test_preserves_plain_text(self):
+        """Good path: preserves text without markup."""
+        result = strip_markup("plain text")
+        assert result == "plain text"
 
 
 class ConcreteReporter(Reporter):
@@ -165,6 +205,41 @@ class TestReporterGetOutputFilename:
         filename = reporter.get_output_filename(sample_report_data)
 
         assert filename.startswith("woolly_")
+
+
+class TestReporterTreeMethods:
+    """Tests for Reporter tree traversal methods."""
+
+    @pytest.mark.unit
+    def test_get_label_from_string(self):
+        """Good path: _get_label returns string directly."""
+        reporter = ConcreteReporter()
+
+        result = reporter._get_label("plain string")
+
+        assert result == "plain string"
+
+    @pytest.mark.unit
+    def test_get_label_from_tree(self):
+        """Good path: _get_label extracts label from Tree."""
+        reporter = ConcreteReporter()
+        tree = Tree("root label")
+
+        result = reporter._get_label(tree)
+
+        assert result == "root label"
+
+    @pytest.mark.unit
+    def test_get_children_returns_list(self):
+        """Good path: _get_children returns list of children."""
+        reporter = ConcreteReporter()
+        tree = Tree("root")
+        tree.add("child1")
+        tree.add("child2")
+
+        result = reporter._get_children(tree)
+
+        assert len(result) == 2
 
 
 class TestReporterWriteReport:

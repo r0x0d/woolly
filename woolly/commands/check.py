@@ -5,6 +5,7 @@ Check command - analyze package dependencies for Fedora availability.
 from typing import Annotated, Optional
 
 import cyclopts
+from pydantic import BaseModel, Field
 from rich.tree import Tree
 
 from woolly.cache import CACHE_DIR
@@ -14,6 +15,20 @@ from woolly.languages import get_available_languages, get_provider
 from woolly.languages.base import LanguageProvider
 from woolly.progress import ProgressTracker
 from woolly.reporters import ReportData, get_available_formats, get_reporter
+
+
+class TreeStats(BaseModel):
+    """Statistics collected from dependency tree analysis."""
+
+    total: int = 0
+    packaged: int = 0
+    missing: int = 0
+    missing_list: list[str] = Field(default_factory=list)
+    packaged_list: list[str] = Field(default_factory=list)
+    optional_total: int = 0
+    optional_packaged: int = 0
+    optional_missing: int = 0
+    optional_missing_list: list[str] = Field(default_factory=list)
 
 
 def build_tree(
@@ -164,29 +179,19 @@ def build_tree(
     return node
 
 
-def collect_stats(tree, stats=None):
+def collect_stats(tree, stats: Optional[TreeStats] = None) -> TreeStats:
     """Walk the tree and collect statistics."""
     if stats is None:
-        stats = {
-            "total": 0,
-            "packaged": 0,
-            "missing": 0,
-            "missing_list": [],
-            "packaged_list": [],
-            "optional_total": 0,
-            "optional_packaged": 0,
-            "optional_missing": 0,
-            "optional_missing_list": [],
-        }
+        stats = TreeStats()
 
     def walk(t):
         if isinstance(t, str):
-            stats["total"] += 1
+            stats.total += 1
             is_optional = "(optional)" in t
             if is_optional:
-                stats["optional_total"] += 1
+                stats.optional_total += 1
             if "not packaged" in t or "not found" in t:
-                stats["missing"] += 1
+                stats.missing += 1
                 # Handle both [bold] and [bold red] formats
                 if "[/bold]" in t:
                     name = t.split("[/bold]")[0].split("]")[-1]
@@ -194,24 +199,24 @@ def collect_stats(tree, stats=None):
                     name = t.split("[/bold red]")[0].split("[bold red]")[-1]
                 else:
                     name = t.split()[0]
-                stats["missing_list"].append(name)
+                stats.missing_list.append(name)
                 if is_optional:
-                    stats["optional_missing"] += 1
-                    stats["optional_missing_list"].append(name)
+                    stats.optional_missing += 1
+                    stats.optional_missing_list.append(name)
             elif "packaged" in t:
-                stats["packaged"] += 1
+                stats.packaged += 1
                 if is_optional:
-                    stats["optional_packaged"] += 1
+                    stats.optional_packaged += 1
             return
 
         if hasattr(t, "label"):
             label = str(t.label)
-            stats["total"] += 1
+            stats.total += 1
             is_optional = "(optional)" in label
             if is_optional:
-                stats["optional_total"] += 1
+                stats.optional_total += 1
             if "not packaged" in label or "not found" in label:
-                stats["missing"] += 1
+                stats.missing += 1
                 # Handle both [bold] and [bold red] formats
                 if "[bold]" in label and "[bold red]" not in label:
                     name = label.split("[/bold]")[0].split("[bold]")[-1]
@@ -219,20 +224,20 @@ def collect_stats(tree, stats=None):
                     name = label.split("[/bold red]")[0].split("[bold red]")[-1]
                 else:
                     name = "unknown"
-                stats["missing_list"].append(name)
+                stats.missing_list.append(name)
                 if is_optional:
-                    stats["optional_missing"] += 1
-                    stats["optional_missing_list"].append(name)
+                    stats.optional_missing += 1
+                    stats.optional_missing_list.append(name)
             elif "packaged" in label:
-                stats["packaged"] += 1
+                stats.packaged += 1
                 name = (
                     label.split("[/bold]")[0].split("[bold]")[-1]
                     if "[bold]" in label
                     else "unknown"
                 )
-                stats["packaged_list"].append(name)
+                stats.packaged_list.append(name)
                 if is_optional:
-                    stats["optional_packaged"] += 1
+                    stats.optional_packaged += 1
 
         if hasattr(t, "children"):
             for child in t.children:
@@ -389,19 +394,19 @@ def check(
         root_package=package,
         language=provider.display_name,
         registry=provider.registry_name,
-        total_dependencies=stats["total"],
-        packaged_count=stats["packaged"],
-        missing_count=stats["missing"],
-        missing_packages=stats["missing_list"],
-        packaged_packages=stats["packaged_list"],
+        total_dependencies=stats.total,
+        packaged_count=stats.packaged,
+        missing_count=stats.missing,
+        missing_packages=stats.missing_list,
+        packaged_packages=stats.packaged_list,
         tree=tree,
         max_depth=max_depth,
         version=version,
         include_optional=optional,
-        optional_total=stats["optional_total"],
-        optional_packaged=stats["optional_packaged"],
-        optional_missing=stats["optional_missing"],
-        optional_missing_packages=stats["optional_missing_list"],
+        optional_total=stats.optional_total,
+        optional_packaged=stats.optional_packaged,
+        optional_missing=stats.optional_missing,
+        optional_missing_packages=stats.optional_missing_list,
     )
 
     # Generate report

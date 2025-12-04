@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 from rich.tree import Tree
 
-from woolly.commands.check import build_tree, collect_stats
+from woolly.commands.check import TreeStats, build_tree, collect_stats
 from woolly.languages.base import (
     Dependency,
     FedoraPackageStatus,
@@ -175,13 +175,22 @@ class TestCollectStats:
     """Tests for collect_stats function."""
 
     @pytest.mark.unit
+    def test_returns_tree_stats_model(self):
+        """Good path: returns TreeStats model."""
+        tree = Tree("[bold]root[/bold] v1.0.0 • [green]✓ packaged[/green]")
+
+        stats = collect_stats(tree)
+
+        assert isinstance(stats, TreeStats)
+
+    @pytest.mark.unit
     def test_counts_packaged(self):
         """Good path: counts packaged packages."""
         tree = Tree("[bold]root[/bold] v1.0.0 • [green]✓ packaged[/green]")
 
         stats = collect_stats(tree)
 
-        assert stats["packaged"] >= 1
+        assert stats.packaged >= 1
 
     @pytest.mark.unit
     def test_counts_missing(self):
@@ -190,7 +199,7 @@ class TestCollectStats:
 
         stats = collect_stats(tree)
 
-        assert stats["missing"] >= 1
+        assert stats.missing >= 1
 
     @pytest.mark.unit
     def test_collects_missing_list(self):
@@ -199,7 +208,7 @@ class TestCollectStats:
 
         stats = collect_stats(tree)
 
-        assert len(stats["missing_list"]) >= 1
+        assert len(stats.missing_list) >= 1
 
     @pytest.mark.unit
     def test_collects_packaged_list(self):
@@ -208,7 +217,7 @@ class TestCollectStats:
 
         stats = collect_stats(tree)
 
-        assert len(stats["packaged_list"]) >= 1
+        assert len(stats.packaged_list) >= 1
 
     @pytest.mark.unit
     def test_handles_string_children(self):
@@ -218,7 +227,7 @@ class TestCollectStats:
 
         stats = collect_stats(tree)
 
-        assert stats["total"] >= 1
+        assert stats.total >= 1
 
     @pytest.mark.unit
     def test_counts_not_found_as_missing(self):
@@ -227,7 +236,7 @@ class TestCollectStats:
 
         stats = collect_stats(tree)
 
-        assert stats["missing"] >= 1
+        assert stats.missing >= 1
 
     @pytest.mark.unit
     def test_extracts_name_from_not_found_string(self):
@@ -241,10 +250,10 @@ class TestCollectStats:
 
         stats = collect_stats(tree)
 
-        assert stats["missing"] == 1
-        assert "nonexistent-pkg" in stats["missing_list"]
+        assert stats.missing == 1
+        assert "nonexistent-pkg" in stats.missing_list
         # Ensure we don't have malformed names like "[bold"
-        for name in stats["missing_list"]:
+        for name in stats.missing_list:
             assert not name.startswith("["), f"Malformed package name: {name}"
 
     @pytest.mark.unit
@@ -258,19 +267,19 @@ class TestCollectStats:
 
         stats = collect_stats(root)
 
-        assert stats["total"] == 3
-        assert stats["packaged"] == 2
-        assert stats["missing"] == 1
+        assert stats.total == 3
+        assert stats.packaged == 2
+        assert stats.missing == 1
 
     @pytest.mark.unit
     def test_initializes_stats_if_not_provided(self):
-        """Good path: initializes stats dictionary if not provided."""
+        """Good path: initializes stats model if not provided."""
         tree = Tree("[bold]pkg[/bold]")
 
         stats = collect_stats(tree)
 
-        assert "total" in stats
-        assert "packaged" in stats
-        assert "missing" in stats
-        assert "missing_list" in stats
-        assert "packaged_list" in stats
+        assert hasattr(stats, "total")
+        assert hasattr(stats, "packaged")
+        assert hasattr(stats, "missing")
+        assert hasattr(stats, "missing_list")
+        assert hasattr(stats, "packaged_list")

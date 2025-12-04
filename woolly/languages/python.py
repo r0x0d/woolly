@@ -8,8 +8,7 @@ Fedora repositories for Python packages.
 import re
 from typing import Optional
 
-import httpx
-
+from woolly import http
 from woolly.cache import DEFAULT_CACHE_TTL, read_cache, write_cache
 from woolly.debug import (
     log_api_request,
@@ -20,7 +19,6 @@ from woolly.debug import (
 from woolly.languages.base import Dependency, LanguageProvider, PackageInfo
 
 PYPI_API = "https://pypi.org/pypi"
-HEADERS = {"User-Agent": "woolly/0.1.0 (https://github.com/r0x0d/woolly)"}
 
 
 class PythonProvider(LanguageProvider):
@@ -51,7 +49,7 @@ class PythonProvider(LanguageProvider):
         log_cache_miss(self.cache_namespace, cache_key)
         url = f"{PYPI_API}/{package_name}/json"
         log_api_request("GET", url)
-        r = httpx.get(url, headers=HEADERS)
+        r = http.get(url)
         log_api_response(r.status_code, r.text[:500] if r.text else None)
 
         if r.status_code == 404:
@@ -96,7 +94,7 @@ class PythonProvider(LanguageProvider):
         log_cache_miss(self.cache_namespace, cache_key)
         url = f"{PYPI_API}/{package_name}/{version}/json"
         log_api_request("GET", url)
-        r = httpx.get(url, headers=HEADERS)
+        r = http.get(url)
         log_api_response(r.status_code, r.text[:500] if r.text else None)
 
         if r.status_code != 200:
