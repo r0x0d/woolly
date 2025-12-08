@@ -29,6 +29,8 @@ class MarkdownReporter(Reporter):
             lines.append(f"**Version:** {data.version}")
         if data.include_optional:
             lines.append("**Include optional:** Yes")
+        if data.missing_only:
+            lines.append("**Missing only:** Yes")
         lines.append("")
 
         # Summary
@@ -69,8 +71,8 @@ class MarkdownReporter(Reporter):
                 lines.append(f"- `{name}` *(optional)*")
             lines.append("")
 
-        # Packaged packages - use computed property
-        if data.unique_packaged_packages:
+        # Packaged packages - use computed property (skip if missing_only mode)
+        if data.unique_packaged_packages and not data.missing_only:
             lines.append("## Packaged Packages")
             lines.append("")
             lines.append("The following packages are already available in Fedora:")
@@ -79,13 +81,14 @@ class MarkdownReporter(Reporter):
                 lines.append(f"- `{name}`")
             lines.append("")
 
-        # Dependency tree
-        lines.append("## Dependency Tree")
-        lines.append("")
-        lines.append("```")
-        lines.append(self._tree_to_text(data.tree))
-        lines.append("```")
-        lines.append("")
+        # Dependency tree (skip if missing_only mode)
+        if not data.missing_only:
+            lines.append("## Dependency Tree")
+            lines.append("")
+            lines.append("```")
+            lines.append(self._tree_to_text(data.tree))
+            lines.append("```")
+            lines.append("")
 
         return "\n".join(lines)
 

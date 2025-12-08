@@ -34,6 +34,7 @@ class TestCliHelp:
         assert result.returncode == 0
         assert "package" in result.stdout.lower()
         assert "--lang" in result.stdout
+        assert "--missing-only" in result.stdout
 
 
 class TestListLanguages:
@@ -262,6 +263,32 @@ class TestCheckCommandPython:
 
 class TestCheckCommandOptions:
     """Tests for check command options."""
+
+    @pytest.mark.functional
+    @pytest.mark.slow
+    def test_missing_only_option(self, cli_runner, tmp_path, monkeypatch):
+        """Good path: missing-only option is accepted."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        result = cli_runner(
+            "check", "cfg-if", "--lang", "rust", "--missing-only", "--no-progress"
+        )
+
+        assert result.returncode == 0
+        # Should not show the dependency tree when --missing-only is used
+        assert "Dependency Tree:" not in result.stdout
+
+    @pytest.mark.functional
+    @pytest.mark.slow
+    def test_missing_only_short_option(self, cli_runner, tmp_path, monkeypatch):
+        """Good path: missing-only short option (-m) is accepted."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        result = cli_runner("check", "cfg-if", "--lang", "rust", "-m", "--no-progress")
+
+        assert result.returncode == 0
+        # Should not show the dependency tree when -m is used
+        assert "Dependency Tree:" not in result.stdout
 
     @pytest.mark.functional
     @pytest.mark.slow

@@ -306,6 +306,14 @@ def check(
             help="Report format: stdout, json, markdown. Use 'list-formats' for all options.",
         ),
     ] = "stdout",
+    missing_only: Annotated[
+        bool,
+        cyclopts.Parameter(
+            ("--missing-only", "-m"),
+            negative=(),
+            help="Only display packages that are missing from Fedora.",
+        ),
+    ] = False,
 ):
     """Check if a package's dependencies are available in Fedora.
 
@@ -327,6 +335,8 @@ def check(
         Enable verbose debug logging.
     report
         Output format for the report.
+    missing_only
+        Only display packages that are missing from Fedora.
     """
     # Get the language provider
     provider = get_provider(lang)
@@ -407,6 +417,7 @@ def check(
         optional_packaged=stats.optional_packaged,
         optional_missing=stats.optional_missing,
         optional_missing_packages=stats.optional_missing_list,
+        missing_only=missing_only,
     )
 
     # Generate report

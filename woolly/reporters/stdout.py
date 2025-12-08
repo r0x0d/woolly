@@ -67,9 +67,10 @@ class StdoutReporter(Reporter):
                     self.console.print(f"  • {name} [dim](optional)[/dim]")
                 self.console.print()
 
-        # Print dependency tree
-        self.console.print("[bold]Dependency Tree:[/bold]")
-        self.console.print(data.tree)
-        self.console.print()
+        # Print dependency tree (skip if missing_only mode is enabled)
+        if not data.missing_only:
+            self.console.print("[bold]Dependency Tree:[/bold]")
+            self.console.print(data.tree)
+            self.console.print()
 
         return ""  # Output is printed directly

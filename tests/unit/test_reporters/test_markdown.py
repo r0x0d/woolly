@@ -133,3 +133,68 @@ class TestMarkdownReporterTreeToText:
 
         # Should contain tree structure characters
         assert "├──" in result or "└──" in result
+
+
+class TestMarkdownReporterMissingOnly:
+    """Tests for MarkdownReporter with missing_only flag."""
+
+    @pytest.mark.unit
+    def test_missing_only_metadata_included(self, sample_report_data):
+        """Good path: shows missing_only indicator in metadata."""
+        sample_report_data.missing_only = True
+        reporter = MarkdownReporter()
+
+        result = reporter.generate(sample_report_data)
+
+        assert "**Missing only:** Yes" in result
+
+    @pytest.mark.unit
+    def test_missing_only_excludes_packaged_section(self, sample_report_data):
+        """Good path: excludes packaged packages section when missing_only is True."""
+        sample_report_data.missing_only = True
+        reporter = MarkdownReporter()
+
+        result = reporter.generate(sample_report_data)
+
+        assert "## Packaged Packages" not in result
+
+    @pytest.mark.unit
+    def test_missing_only_excludes_dependency_tree(self, sample_report_data):
+        """Good path: excludes dependency tree when missing_only is True."""
+        sample_report_data.missing_only = True
+        reporter = MarkdownReporter()
+
+        result = reporter.generate(sample_report_data)
+
+        assert "## Dependency Tree" not in result
+
+    @pytest.mark.unit
+    def test_missing_only_false_includes_packaged_section(self, sample_report_data):
+        """Good path: includes packaged section when missing_only is False."""
+        sample_report_data.missing_only = False
+        reporter = MarkdownReporter()
+
+        result = reporter.generate(sample_report_data)
+
+        assert "## Packaged Packages" in result
+
+    @pytest.mark.unit
+    def test_missing_only_false_includes_dependency_tree(self, sample_report_data):
+        """Good path: includes dependency tree when missing_only is False."""
+        sample_report_data.missing_only = False
+        reporter = MarkdownReporter()
+
+        result = reporter.generate(sample_report_data)
+
+        assert "## Dependency Tree" in result
+
+    @pytest.mark.unit
+    def test_missing_only_still_includes_missing_packages(self, sample_report_data):
+        """Good path: missing packages are still shown when missing_only is True."""
+        sample_report_data.missing_only = True
+        reporter = MarkdownReporter()
+
+        result = reporter.generate(sample_report_data)
+
+        assert "## Missing Packages" in result
+        assert "- `missing-a`" in result
