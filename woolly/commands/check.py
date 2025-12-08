@@ -3,6 +3,7 @@ Check command - analyze package dependencies for Fedora availability.
 """
 
 import fnmatch
+from pathlib import Path
 from typing import Annotated, Optional
 
 import cyclopts
@@ -332,6 +333,13 @@ def check(
             help="Glob pattern(s) to exclude dependencies (e.g., '*-windows', 'win*'). Can be specified multiple times.",
         ),
     ] = (),
+    template: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            ("--template", "-t"),
+            help="Path to a Jinja2 template file for custom report format. Only used with --report=template.",
+        ),
+    ] = None,
 ):
     """Check if a package's dependencies are available in Fedora.
 
@@ -357,6 +365,8 @@ def check(
         Only display packages that are missing from Fedora.
     exclude
         Glob pattern(s) to exclude dependencies from the analysis.
+    template
+        Path to a Jinja2 template file for custom report format.
     """
     # Get the language provider
     provider = get_provider(lang)
@@ -366,7 +376,25 @@ def check(
         raise SystemExit(1)
 
     # Get the reporter
-    reporter = get_reporter(report, console=console)
+    template_path = Path(template) if template else None
+
+    # Validate template reporter requirements
+    if report.lower() in ("template", "tpl", "jinja", "jinja2"):
+        if template_path is None:
+            console.print("[red]Template reporter requires --template parameter.[/red]")
+            console.print(
+                "Example: woolly check mypackage --report=template --template=my_template.md"
+            )
+            raise SystemExit(1)
+        if not template_path.exists():
+            console.print(f"[red]Template file not found: {template_path}[/red]")
+            raise SystemExit(1)
+    elif template_path is not None:
+        console.print(
+            "[yellow]Warning: --template is only used with --report=template[/yellow]"
+        )
+
+    reporter = get_reporter(report, console=console, template_path=template_path)
     if reporter is None:
         console.print(f"[red]Unknown report format: {report}[/red]")
         console.print(f"Available formats: {', '.join(get_available_formats())}")
