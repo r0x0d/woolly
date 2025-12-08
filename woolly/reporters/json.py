@@ -37,6 +37,7 @@ class ReportMetadata(BaseModel):
     version: Optional[str] = None
     max_depth: int
     include_optional: bool
+    missing_only: bool = False
 
 
 class ReportSummary(BaseModel):
@@ -86,6 +87,7 @@ class JsonReporter(Reporter):
                 version=data.version,
                 max_depth=data.max_depth,
                 include_optional=data.include_optional,
+                missing_only=data.missing_only,
             ),
             summary=ReportSummary(
                 total_dependencies=data.total_dependencies,
@@ -99,7 +101,10 @@ class JsonReporter(Reporter):
             ),
             missing_packages=sorted(data.required_missing_packages),
             missing_optional_packages=sorted(data.optional_missing_set),
-            packaged_packages=sorted(data.unique_packaged_packages),
+            # Skip packaged packages list when missing_only mode is enabled
+            packaged_packages=[]
+            if data.missing_only
+            else sorted(data.unique_packaged_packages),
             dependency_tree=self._tree_to_model(data.tree),
         )
 

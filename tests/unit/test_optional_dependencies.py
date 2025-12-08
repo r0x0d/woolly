@@ -229,6 +229,7 @@ class TestBuildTreeOptional:
         """Good path: optional dependencies are marked in the tree."""
         tree = build_tree(provider, "parent", include_optional=True)
 
+        assert isinstance(tree, Tree)
         # Find optional children
         optional_count = 0
         for child in tree.children:
@@ -246,6 +247,7 @@ class TestBuildTreeOptional:
         """Good path: required dependencies don't have optional marker."""
         tree = build_tree(provider, "parent", include_optional=True)
 
+        assert isinstance(tree, Tree)
         # The root should not have optional marker
         label = str(tree.label)
         assert "(optional)" not in label
@@ -255,6 +257,7 @@ class TestBuildTreeOptional:
         """Critical path: is_optional_dep parameter adds marker."""
         tree = build_tree(provider, "required-child", is_optional_dep=True)
 
+        assert isinstance(tree, Tree)
         label = str(tree.label)
         assert "(optional)" in label
 

@@ -102,3 +102,32 @@ class TestStdoutReporterGenerate:
             for arg in args:
                 if isinstance(arg, str):
                     assert "Missing packages that need packaging" not in arg
+
+    @pytest.mark.unit
+    def test_missing_only_skips_dependency_tree(self, sample_report_data, mock_console):
+        """Good path: skips dependency tree when missing_only is True."""
+        sample_report_data.missing_only = True
+        reporter = StdoutReporter(console=mock_console)
+
+        reporter.generate(sample_report_data)
+
+        # Should not print "Dependency Tree:"
+        for call_obj in mock_console.print.call_args_list:
+            args = call_obj[0] if call_obj[0] else []
+            for arg in args:
+                if isinstance(arg, str):
+                    assert "Dependency Tree:" not in arg
+
+    @pytest.mark.unit
+    def test_missing_only_false_shows_dependency_tree(
+        self, sample_report_data, mock_console
+    ):
+        """Good path: shows dependency tree when missing_only is False."""
+        sample_report_data.missing_only = False
+        reporter = StdoutReporter(console=mock_console)
+
+        reporter.generate(sample_report_data)
+
+        # Should print "Dependency Tree:"
+        calls_str = str(mock_console.print.call_args_list)
+        assert "Dependency Tree" in calls_str

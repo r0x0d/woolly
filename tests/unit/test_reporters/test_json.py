@@ -179,3 +179,54 @@ class TestJsonReporterParseLabel:
 
         assert "[" not in result.raw
         assert "]" not in result.raw
+
+
+class TestJsonReporterMissingOnly:
+    """Tests for JsonReporter with missing_only flag."""
+
+    @pytest.mark.unit
+    def test_missing_only_metadata_included(self, sample_report_data):
+        """Good path: missing_only is included in metadata."""
+        sample_report_data.missing_only = True
+        reporter = JsonReporter()
+
+        result = reporter.generate(sample_report_data)
+        parsed = json.loads(result)
+
+        assert "missing_only" in parsed["metadata"]
+        assert parsed["metadata"]["missing_only"] is True
+
+    @pytest.mark.unit
+    def test_missing_only_excludes_packaged_packages(self, sample_report_data):
+        """Good path: excludes packaged packages when missing_only is True."""
+        sample_report_data.missing_only = True
+        reporter = JsonReporter()
+
+        result = reporter.generate(sample_report_data)
+        parsed = json.loads(result)
+
+        assert parsed["packaged_packages"] == []
+
+    @pytest.mark.unit
+    def test_missing_only_false_includes_packaged_packages(self, sample_report_data):
+        """Good path: includes packaged packages when missing_only is False."""
+        sample_report_data.missing_only = False
+        reporter = JsonReporter()
+
+        result = reporter.generate(sample_report_data)
+        parsed = json.loads(result)
+
+        assert len(parsed["packaged_packages"]) > 0
+        assert "packaged-a" in parsed["packaged_packages"]
+
+    @pytest.mark.unit
+    def test_missing_only_still_includes_missing_packages(self, sample_report_data):
+        """Good path: missing packages are still included when missing_only is True."""
+        sample_report_data.missing_only = True
+        reporter = JsonReporter()
+
+        result = reporter.generate(sample_report_data)
+        parsed = json.loads(result)
+
+        assert len(parsed["missing_packages"]) > 0
+        assert "missing-a" in parsed["missing_packages"]

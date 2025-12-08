@@ -73,6 +73,9 @@ class ReportData(BaseModel):
     max_depth: int = 50
     version: Optional[str] = None
 
+    # Display options
+    missing_only: bool = False
+
     @cached_property
     def required_missing_packages(self) -> set[str]:
         """Get the set of required (non-optional) missing packages."""
