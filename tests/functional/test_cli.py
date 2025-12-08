@@ -304,6 +304,62 @@ class TestCheckCommandOptions:
 
     @pytest.mark.functional
     @pytest.mark.slow
+    def test_exclude_option(self, cli_runner, tmp_path, monkeypatch):
+        """Good path: exclude option is accepted and displayed."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        result = cli_runner(
+            "check",
+            "cfg-if",
+            "--lang",
+            "rust",
+            "--exclude",
+            "windows*",
+            "--no-progress",
+        )
+
+        assert result.returncode == 0
+        assert "Excluding dependencies matching" in result.stdout
+        assert "windows*" in result.stdout
+
+    @pytest.mark.functional
+    @pytest.mark.slow
+    def test_exclude_multiple_patterns(self, cli_runner, tmp_path, monkeypatch):
+        """Good path: multiple exclude patterns are accepted."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        result = cli_runner(
+            "check",
+            "cfg-if",
+            "--lang",
+            "rust",
+            "--exclude",
+            "windows*",
+            "--exclude",
+            "*-sys",
+            "--no-progress",
+        )
+
+        assert result.returncode == 0
+        assert "Excluding dependencies matching" in result.stdout
+        assert "windows*" in result.stdout
+        assert "*-sys" in result.stdout
+
+    @pytest.mark.functional
+    @pytest.mark.slow
+    def test_exclude_short_option(self, cli_runner, tmp_path, monkeypatch):
+        """Good path: -e short option works."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        result = cli_runner(
+            "check", "cfg-if", "--lang", "rust", "-e", "win*", "--no-progress"
+        )
+
+        assert result.returncode == 0
+        assert "Excluding dependencies matching" in result.stdout
+
+    @pytest.mark.functional
+    @pytest.mark.slow
     def test_debug_option(self, cli_runner, tmp_path, monkeypatch):
         """Good path: debug option creates log file."""
         monkeypatch.setenv("HOME", str(tmp_path))

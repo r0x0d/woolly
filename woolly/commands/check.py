@@ -2,6 +2,7 @@
 Check command - analyze package dependencies for Fedora availability.
 """
 
+import fnmatch
 from typing import Annotated, Optional
 
 import cyclopts
@@ -41,6 +42,7 @@ def build_tree(
     tracker: Optional[ProgressTracker] = None,
     include_optional: bool = False,
     is_optional_dep: bool = False,
+    exclude_patterns: Optional[list[str]] = None,
 ):
     """
     Recursively build a dependency tree for a package.
@@ -65,6 +67,8 @@ def build_tree(
         If True, include optional dependencies in the analysis.
     is_optional_dep
         If True, this package is an optional dependency.
+    exclude_patterns
+        List of glob patterns to exclude from the dependency tree.
 
     Returns
     -------
@@ -156,6 +160,12 @@ def build_tree(
         tracker.update(package_name, discovered=len(deps))
 
     for dep_name, _dep_req, dep_is_optional in deps:
+        # Skip dependencies matching exclude patterns
+        if exclude_patterns:
+            if any(fnmatch.fnmatch(dep_name, pattern) for pattern in exclude_patterns):
+                log(f"Filtered out dependency: {dep_name}", level="info", depth=depth)
+                continue
+
         child = build_tree(
             provider,
             dep_name,
@@ -166,6 +176,7 @@ def build_tree(
             tracker,
             include_optional=include_optional,
             is_optional_dep=dep_is_optional,
+            exclude_patterns=exclude_patterns,
         )
         if isinstance(child, str):
             node.add(child)
@@ -314,6 +325,13 @@ def check(
             help="Only display packages that are missing from Fedora.",
         ),
     ] = False,
+    exclude: Annotated[
+        tuple[str, ...],
+        cyclopts.Parameter(
+            ("--exclude", "-e"),
+            help="Glob pattern(s) to exclude dependencies (e.g., '*-windows', 'win*'). Can be specified multiple times.",
+        ),
+    ] = (),
 ):
     """Check if a package's dependencies are available in Fedora.
 
@@ -337,6 +355,8 @@ def check(
         Output format for the report.
     missing_only
         Only display packages that are missing from Fedora.
+    exclude
+        Glob pattern(s) to exclude dependencies from the analysis.
     """
     # Get the language provider
     provider = get_provider(lang)
@@ -352,6 +372,9 @@ def check(
         console.print(f"Available formats: {', '.join(get_available_formats())}")
         raise SystemExit(1)
 
+    # Convert exclude tuple to list for consistency
+    exclude_patterns = list(exclude) if exclude else None
+
     # Initialize logging
     setup_logger(debug=debug)
     log(
@@ -362,6 +385,7 @@ def check(
         include_optional=optional,
         debug=debug,
         report_format=report,
+        exclude_patterns=exclude_patterns,
     )
 
     console.print(
@@ -369,6 +393,10 @@ def check(
     )
     if optional:
         console.print("[yellow]Including optional dependencies[/yellow]")
+    if exclude_patterns:
+        console.print(
+            f"[yellow]Excluding dependencies matching: {', '.join(exclude_patterns)}[/yellow]"
+        )
     console.print(f"[dim]Registry: {provider.registry_name}[/dim]")
     console.print(f"[dim]Cache directory: {CACHE_DIR}[/dim]")
     console.print()
@@ -386,6 +414,7 @@ def check(
             max_depth=max_depth,
             tracker=tracker,
             include_optional=optional,
+            exclude_patterns=exclude_patterns,
         )
         if tracker:
             tracker.finish()
