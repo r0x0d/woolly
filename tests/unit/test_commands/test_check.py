@@ -170,6 +170,126 @@ class TestBuildTree:
 
         tracker.update.assert_called()
 
+    @pytest.mark.unit
+    def test_excludes_dependencies_matching_pattern(self, provider):
+        """Good path: excludes dependencies matching glob patterns."""
+        # Set up package with dependencies
+        provider.packages["parent"] = PackageInfo(name="parent", latest_version="1.0.0")
+        provider.packages["child"] = PackageInfo(name="child", latest_version="2.0.0")
+        provider.packages["windows-sys"] = PackageInfo(
+            name="windows-sys", latest_version="0.52.0"
+        )
+        provider.dependencies["parent:1.0.0"] = [
+            Dependency(name="child", version_requirement="^2.0", kind="normal"),
+            Dependency(name="windows-sys", version_requirement="^0.52", kind="normal"),
+        ]
+        provider.fedora_status["parent"] = FedoraPackageStatus(
+            is_packaged=True, versions=["1.0.0"]
+        )
+        provider.fedora_status["child"] = FedoraPackageStatus(
+            is_packaged=True, versions=["2.0.0"]
+        )
+        provider.fedora_status["windows-sys"] = FedoraPackageStatus(is_packaged=False)
+
+        tree = build_tree(provider, "parent", exclude_patterns=["windows*"])
+
+        # Should only have child, not windows-sys
+        assert isinstance(tree, Tree)
+        assert len(tree.children) == 1
+        child_label = str(tree.children[0].label)
+        assert "child" in child_label
+        # windows-sys should be excluded
+        for child in tree.children:
+            label = str(child.label) if hasattr(child, "label") else str(child)
+            assert "windows" not in label
+
+    @pytest.mark.unit
+    def test_excludes_multiple_patterns(self, provider):
+        """Good path: excludes dependencies matching multiple glob patterns."""
+        provider.packages["parent"] = PackageInfo(name="parent", latest_version="1.0.0")
+        provider.packages["good-dep"] = PackageInfo(
+            name="good-dep", latest_version="1.0.0"
+        )
+        provider.packages["win-dep"] = PackageInfo(
+            name="win-dep", latest_version="1.0.0"
+        )
+        provider.packages["macos-dep"] = PackageInfo(
+            name="macos-dep", latest_version="1.0.0"
+        )
+        provider.dependencies["parent:1.0.0"] = [
+            Dependency(name="good-dep", version_requirement="^1.0", kind="normal"),
+            Dependency(name="win-dep", version_requirement="^1.0", kind="normal"),
+            Dependency(name="macos-dep", version_requirement="^1.0", kind="normal"),
+        ]
+        provider.fedora_status["parent"] = FedoraPackageStatus(
+            is_packaged=True, versions=["1.0.0"]
+        )
+        provider.fedora_status["good-dep"] = FedoraPackageStatus(
+            is_packaged=True, versions=["1.0.0"]
+        )
+        provider.fedora_status["win-dep"] = FedoraPackageStatus(is_packaged=False)
+        provider.fedora_status["macos-dep"] = FedoraPackageStatus(is_packaged=False)
+
+        tree = build_tree(provider, "parent", exclude_patterns=["win*", "macos*"])
+
+        # Should only have good-dep
+        assert isinstance(tree, Tree)
+        assert len(tree.children) == 1
+        child_label = str(tree.children[0].label)
+        assert "good-dep" in child_label
+
+    @pytest.mark.unit
+    def test_exclude_patterns_applied_recursively(self, provider):
+        """Good path: exclude patterns are applied at all depth levels."""
+        provider.packages["root"] = PackageInfo(name="root", latest_version="1.0.0")
+        provider.packages["child"] = PackageInfo(name="child", latest_version="1.0.0")
+        provider.packages["windows-inner"] = PackageInfo(
+            name="windows-inner", latest_version="1.0.0"
+        )
+        provider.dependencies["root:1.0.0"] = [
+            Dependency(name="child", version_requirement="^1.0", kind="normal"),
+        ]
+        provider.dependencies["child:1.0.0"] = [
+            Dependency(name="windows-inner", version_requirement="^1.0", kind="normal"),
+        ]
+        provider.fedora_status["root"] = FedoraPackageStatus(
+            is_packaged=True, versions=["1.0.0"]
+        )
+        provider.fedora_status["child"] = FedoraPackageStatus(
+            is_packaged=True, versions=["1.0.0"]
+        )
+        provider.fedora_status["windows-inner"] = FedoraPackageStatus(is_packaged=False)
+
+        tree = build_tree(provider, "root", exclude_patterns=["windows*"])
+
+        # root -> child (no windows-inner)
+        assert isinstance(tree, Tree)
+        assert len(tree.children) == 1
+        child_tree = tree.children[0]
+        assert isinstance(child_tree, Tree)
+        # child should have no children (windows-inner was filtered)
+        assert len(child_tree.children) == 0
+
+    @pytest.mark.unit
+    def test_no_exclusion_when_patterns_none(self, provider):
+        """Good path: no exclusion when patterns is None."""
+        provider.packages["parent"] = PackageInfo(name="parent", latest_version="1.0.0")
+        provider.packages["child"] = PackageInfo(name="child", latest_version="1.0.0")
+        provider.dependencies["parent:1.0.0"] = [
+            Dependency(name="child", version_requirement="^1.0", kind="normal"),
+        ]
+        provider.fedora_status["parent"] = FedoraPackageStatus(
+            is_packaged=True, versions=["1.0.0"]
+        )
+        provider.fedora_status["child"] = FedoraPackageStatus(
+            is_packaged=True, versions=["1.0.0"]
+        )
+
+        tree = build_tree(provider, "parent", exclude_patterns=None)
+
+        assert isinstance(tree, Tree)
+        assert len(tree.children) == 1
+
 
 class TestCollectStats:
     """Tests for collect_stats function."""
