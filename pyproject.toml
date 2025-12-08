@@ -37,6 +37,11 @@ classifiers = [
     "Topic :: Utilities",
 ]
 
+[project.optional-dependencies]
+template = [
+    "jinja2>=3.1.0",
+]
+
 [project.url]
 "Source code" = "https://github.com/r0x0d/woolly"
 "Bug Tracker" = "https://github.com/r0x0d/woolly/issues"

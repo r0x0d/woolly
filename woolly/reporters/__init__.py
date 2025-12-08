@@ -6,6 +6,7 @@ To add a new format, create a module in this directory that defines a class
 inheriting from Reporter and add it to REPORTERS dict.
 """
 
+from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -15,6 +16,7 @@ from woolly.reporters.base import ReportData, Reporter, strip_markup
 from woolly.reporters.json import JsonReporter
 from woolly.reporters.markdown import MarkdownReporter
 from woolly.reporters.stdout import StdoutReporter
+from woolly.reporters.template import TemplateReporter
 
 
 class ReporterInfo(BaseModel):
@@ -32,6 +34,7 @@ REPORTERS: dict[str, type[Reporter]] = {
     "stdout": StdoutReporter,
     "markdown": MarkdownReporter,
     "json": JsonReporter,
+    "template": TemplateReporter,
 }
 
 # Aliases for convenience
@@ -39,11 +42,16 @@ ALIASES: dict[str, str] = {
     "md": "markdown",
     "console": "stdout",
     "terminal": "stdout",
+    "tpl": "template",
+    "jinja": "template",
+    "jinja2": "template",
 }
 
 
 def get_reporter(
-    format_name: str, console: Optional[Console] = None
+    format_name: str,
+    console: Optional[Console] = None,
+    template_path: Optional[Path] = None,
 ) -> Optional[Reporter]:
     """
     Get an instantiated reporter for the specified format.
@@ -51,6 +59,7 @@ def get_reporter(
     Args:
         format_name: Format identifier or alias (e.g., "json", "markdown", "md")
         console: Console instance for stdout reporter.
+        template_path: Path to template file for template reporter.
 
     Returns:
         Instantiated Reporter, or None if not found.
@@ -67,6 +76,10 @@ def get_reporter(
     # StdoutReporter needs a console
     if format_name == "stdout" and console:
         return StdoutReporter(console=console)
+
+    # TemplateReporter needs a template path
+    if format_name == "template":
+        return TemplateReporter(template_path=template_path)
 
     return reporter_class()
 
@@ -104,6 +117,7 @@ __all__ = [
     "StdoutReporter",
     "MarkdownReporter",
     "JsonReporter",
+    "TemplateReporter",
     "get_reporter",
     "list_reporters",
     "get_available_formats",
