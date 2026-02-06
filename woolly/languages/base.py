@@ -41,6 +41,7 @@ class PackageInfo(BaseModel):
     description: Optional[str] = None
     homepage: Optional[str] = None
     repository: Optional[str] = None
+    license: Optional[str] = None
 
 
 class Dependency(BaseModel):
@@ -50,6 +51,14 @@ class Dependency(BaseModel):
     version_requirement: str
     optional: bool = False
     kind: Literal["normal", "dev", "build"] = "normal"
+    group: Optional[str] = None
+
+
+class FeatureInfo(BaseModel):
+    """Information about a feature flag (Rust) or extra (Python)."""
+
+    name: str
+    dependencies: list[str] = Field(default_factory=list)
 
 
 class FedoraPackageStatus(BaseModel):
@@ -113,6 +122,20 @@ class LanguageProvider(ABC):
         """
         pass
 
+    @abstractmethod
+    def fetch_features(self, package_name: str, version: str) -> list[FeatureInfo]:
+        """
+        Fetch feature flags (Rust) or extras (Python) for a specific package version.
+
+        Args:
+            package_name: The name of the package.
+            version: The specific version to get features for.
+
+        Returns:
+            List of FeatureInfo objects.
+        """
+        pass
+
     # ----------------------------------------------------------------
     # Concrete methods - shared implementation for all providers
     # ----------------------------------------------------------------
@@ -163,6 +186,52 @@ class LanguageProvider(ABC):
             for d in deps
             if d.kind == "normal" and (include_optional or not d.optional)
         ]
+
+    def get_dev_dependencies(
+        self,
+        package_name: str,
+        version: Optional[str] = None,
+    ) -> list[Dependency]:
+        """
+        Get dev dependencies for a package.
+
+        Args:
+            package_name: The name of the package.
+            version: Specific version, or None for latest.
+
+        Returns:
+            List of Dependency objects with kind='dev'.
+        """
+        if version is None:
+            version = self.get_latest_version(package_name)
+            if version is None:
+                return []
+
+        deps = self.fetch_dependencies(package_name, version)
+        return [d for d in deps if d.kind == "dev"]
+
+    def get_build_dependencies(
+        self,
+        package_name: str,
+        version: Optional[str] = None,
+    ) -> list[Dependency]:
+        """
+        Get build dependencies for a package.
+
+        Args:
+            package_name: The name of the package.
+            version: Specific version, or None for latest.
+
+        Returns:
+            List of Dependency objects with kind='build'.
+        """
+        if version is None:
+            version = self.get_latest_version(package_name)
+            if version is None:
+                return []
+
+        deps = self.fetch_dependencies(package_name, version)
+        return [d for d in deps if d.kind == "build"]
 
     def get_fedora_provides_pattern(self, package_name: str) -> str:
         """

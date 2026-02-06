@@ -8,15 +8,27 @@ from typing import Annotated, Optional
 
 import cyclopts
 from pydantic import BaseModel, Field
+from rich.panel import Panel
+from rich.text import Text
 from rich.tree import Tree
 
 from woolly.cache import CACHE_DIR
 from woolly.commands import app, console
 from woolly.debug import get_log_file, log, log_package_check, setup_logger
 from woolly.languages import get_available_languages, get_provider
-from woolly.languages.base import LanguageProvider
+from woolly.languages.base import FeatureInfo, LanguageProvider
 from woolly.progress import ProgressTracker
 from woolly.reporters import ReportData, get_available_formats, get_reporter
+
+
+class DevBuildDepStatus(BaseModel):
+    """Status of a dev or build dependency."""
+
+    name: str
+    version_requirement: str
+    is_packaged: bool
+    fedora_versions: list[str] = Field(default_factory=list)
+    fedora_packages: list[str] = Field(default_factory=list)
 
 
 class TreeStats(BaseModel):
@@ -31,6 +43,12 @@ class TreeStats(BaseModel):
     optional_packaged: int = 0
     optional_missing: int = 0
     optional_missing_list: list[str] = Field(default_factory=list)
+    dev_total: int = 0
+    dev_packaged: int = 0
+    dev_missing: int = 0
+    build_total: int = 0
+    build_packaged: int = 0
+    build_missing: int = 0
 
 
 def build_tree(
@@ -102,9 +120,11 @@ def build_tree(
 
     log_package_check(package_name, "Fetching version", source=provider.registry_name)
 
+    # Fetch full package info to get version and license
+    pkg_info = None
     if version is None:
-        version = provider.get_latest_version(package_name)
-        if version is None:
+        pkg_info = provider.fetch_package_info(package_name)
+        if pkg_info is None:
             visited[package_name] = (False, None)
             log_package_check(
                 package_name, "Not found", source=provider.registry_name, result="error"
@@ -113,6 +133,13 @@ def build_tree(
                 f"[bold red]{package_name}[/bold red]{optional_marker} • "
                 f"[red]not found on {provider.registry_name}[/red]"
             )
+        version = pkg_info.latest_version
+    else:
+        pkg_info = provider.fetch_package_info(package_name)
+
+    license_str = ""
+    if pkg_info and pkg_info.license:
+        license_str = f" [magenta]({pkg_info.license})[/magenta]"
 
     log_package_check(package_name, "Checking Fedora", source="dnf repoquery")
 
@@ -133,14 +160,14 @@ def build_tree(
         ver_str = ", ".join(status.versions) if status.versions else "unknown"
         pkg_str = ", ".join(status.package_names) if status.package_names else ""
         label = (
-            f"[bold]{package_name}[/bold] [dim]v{version}[/dim]{optional_marker} • "
+            f"[bold]{package_name}[/bold] [dim]v{version}[/dim]{license_str}{optional_marker} • "
             f"[green]✓ packaged[/green] [dim]({ver_str})[/dim]"
         )
         if pkg_str:
             label += f" [dim cyan][{pkg_str}][/dim cyan]"
     else:
         label = (
-            f"[bold]{package_name}[/bold] [dim]v{version}[/dim]{optional_marker} • "
+            f"[bold]{package_name}[/bold] [dim]v{version}[/dim]{license_str}{optional_marker} • "
             f"[red]✗ not packaged[/red]"
         )
 
@@ -416,18 +443,30 @@ def check(
         exclude_patterns=exclude_patterns,
     )
 
-    console.print(
-        f"\n[bold underline]Analyzing {provider.display_name} package:[/] {package}"
-    )
+    header = Text()
+    header.append(package, style="bold cyan")
+    header.append(f" ({provider.display_name})\n", style="dim")
+    header.append(f"Registry:  {provider.registry_name}\n", style="dim")
+    header.append(f"Cache:     {CACHE_DIR}", style="dim")
     if optional:
-        console.print("[yellow]Including optional dependencies[/yellow]")
+        header.append("\n")
+        header.append("Including optional dependencies", style="yellow")
     if exclude_patterns:
-        console.print(
-            f"[yellow]Excluding dependencies matching: {', '.join(exclude_patterns)}[/yellow]"
+        header.append("\n")
+        header.append(
+            f"Excluding dependencies matching: {', '.join(exclude_patterns)}",
+            style="yellow",
         )
-    console.print(f"[dim]Registry: {provider.registry_name}[/dim]")
-    console.print(f"[dim]Cache directory: {CACHE_DIR}[/dim]")
+
     console.print()
+    console.print(
+        Panel(
+            header,
+            title="[bold]Analyzing Dependencies[/bold]",
+            border_style="blue",
+            padding=(0, 1),
+        )
+    )
 
     tracker = None if no_progress else ProgressTracker(console)
 
@@ -456,6 +495,54 @@ def check(
     # Collect statistics
     stats = collect_stats(tree)
 
+    # Fetch root package info for license
+    root_info = provider.fetch_package_info(package)
+    root_license = root_info.license if root_info else None
+    resolved_version = version or (root_info.latest_version if root_info else None)
+
+    # Fetch features/extras for the root package
+    features: list[FeatureInfo] = []
+    if resolved_version:
+        features = provider.fetch_features(package, resolved_version)
+
+    # Fetch dev and build dependencies (flat, with Fedora status check)
+    dev_deps_status: list[DevBuildDepStatus] = []
+    build_deps_status: list[DevBuildDepStatus] = []
+
+    if resolved_version:
+        dev_deps = provider.get_dev_dependencies(package, resolved_version)
+        for dep in dev_deps:
+            fedora_status = provider.check_fedora_packaging(dep.name)
+            dev_deps_status.append(
+                DevBuildDepStatus(
+                    name=dep.name,
+                    version_requirement=dep.version_requirement,
+                    is_packaged=fedora_status.is_packaged,
+                    fedora_versions=fedora_status.versions,
+                    fedora_packages=fedora_status.package_names,
+                )
+            )
+
+        build_deps = provider.get_build_dependencies(package, resolved_version)
+        for dep in build_deps:
+            fedora_status = provider.check_fedora_packaging(dep.name)
+            build_deps_status.append(
+                DevBuildDepStatus(
+                    name=dep.name,
+                    version_requirement=dep.version_requirement,
+                    is_packaged=fedora_status.is_packaged,
+                    fedora_versions=fedora_status.versions,
+                    fedora_packages=fedora_status.package_names,
+                )
+            )
+
+    stats.dev_total = len(dev_deps_status)
+    stats.dev_packaged = sum(1 for d in dev_deps_status if d.is_packaged)
+    stats.dev_missing = sum(1 for d in dev_deps_status if not d.is_packaged)
+    stats.build_total = len(build_deps_status)
+    stats.build_packaged = sum(1 for d in build_deps_status if d.is_packaged)
+    stats.build_missing = sum(1 for d in build_deps_status if not d.is_packaged)
+
     # Create report data
     report_data = ReportData(
         root_package=package,
@@ -475,6 +562,16 @@ def check(
         optional_missing=stats.optional_missing,
         optional_missing_packages=stats.optional_missing_list,
         missing_only=missing_only,
+        root_license=root_license,
+        features=features,
+        dev_dependencies=[d.model_dump() for d in dev_deps_status],
+        build_dependencies=[d.model_dump() for d in build_deps_status],
+        dev_total=stats.dev_total,
+        dev_packaged=stats.dev_packaged,
+        dev_missing=stats.dev_missing,
+        build_total=stats.build_total,
+        build_packaged=stats.build_packaged,
+        build_missing=stats.build_missing,
     )
 
     # Generate report

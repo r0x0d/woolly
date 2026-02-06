@@ -119,6 +119,7 @@ def mock_crates_io_response():
             "description": "A serialization framework for Rust",
             "homepage": "https://serde.rs",
             "repository": "https://github.com/serde-rs/serde",
+            "license": "MIT OR Apache-2.0",
         }
     }
 
@@ -154,12 +155,55 @@ def mock_pypi_response():
             "summary": "Python HTTP for Humans",
             "home_page": "https://requests.readthedocs.io",
             "project_url": "https://github.com/psf/requests",
+            "license": "Apache-2.0",
+            "license_expression": None,
+            "provides_extra": ["socks"],
             "requires_dist": [
                 "charset-normalizer<4,>=2",
                 "idna<4,>=2.5",
                 "urllib3<3,>=1.21.1",
                 "certifi>=2017.4.17",
                 "PySocks!=1.5.7,>=1.5.6; extra == 'socks'",
+            ],
+        }
+    }
+
+
+@pytest.fixture
+def mock_crates_io_version_response():
+    """Create a mock crates.io version API response (for features)."""
+    return {
+        "version": {
+            "num": "1.0.200",
+            "features": {
+                "default": ["std", "derive"],
+                "std": [],
+                "derive": ["serde_derive"],
+                "alloc": [],
+            },
+        }
+    }
+
+
+@pytest.fixture
+def mock_pypi_version_response():
+    """Create a mock PyPI version API response (for extras/features)."""
+    return {
+        "info": {
+            "name": "requests",
+            "version": "2.31.0",
+            "summary": "Python HTTP for Humans",
+            "license": "Apache-2.0",
+            "license_expression": None,
+            "provides_extra": ["socks", "security"],
+            "requires_dist": [
+                "charset-normalizer<4,>=2",
+                "idna<4,>=2.5",
+                "urllib3<3,>=1.21.1",
+                "certifi>=2017.4.17",
+                "PySocks!=1.5.7,>=1.5.6; extra == 'socks'",
+                "pyOpenSSL>=0.14; extra == 'security'",
+                "cryptography>=1.3.4; extra == 'security'",
             ],
         }
     }
@@ -174,6 +218,7 @@ def mock_pypi_response():
 def mock_console():
     """Create a mock Rich console."""
     console = MagicMock(spec=Console)
+    console.width = 120  # Wide enough for side-by-side layout
     return console
 
 

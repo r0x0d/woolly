@@ -51,6 +51,9 @@ class ReportData(BaseModel):
     language: str
     registry: str
 
+    # License
+    root_license: Optional[str] = None
+
     # Statistics
     total_dependencies: int
     packaged_count: int
@@ -64,6 +67,21 @@ class ReportData(BaseModel):
     optional_packaged: int = 0
     optional_missing: int = 0
     optional_missing_packages: list[str] = Field(default_factory=list)
+
+    # Dev dependency statistics
+    dev_dependencies: list[dict] = Field(default_factory=list)
+    dev_total: int = 0
+    dev_packaged: int = 0
+    dev_missing: int = 0
+
+    # Build dependency statistics
+    build_dependencies: list[dict] = Field(default_factory=list)
+    build_total: int = 0
+    build_packaged: int = 0
+    build_missing: int = 0
+
+    # Features / extras
+    features: list[Any] = Field(default_factory=list)
 
     # Full tree for detailed reports
     tree: Any  # Rich Tree object - not JSON serializable

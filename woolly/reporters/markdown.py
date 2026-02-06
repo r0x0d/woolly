@@ -25,6 +25,8 @@ class MarkdownReporter(Reporter):
         lines.append(f"**Generated:** {data.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
         lines.append(f"**Language:** {data.language}")
         lines.append(f"**Registry:** {data.registry}")
+        if data.root_license:
+            lines.append(f"**License:** {data.root_license}")
         if data.version:
             lines.append(f"**Version:** {data.version}")
         if data.include_optional:
@@ -47,7 +49,76 @@ class MarkdownReporter(Reporter):
             lines.append(f"| Optional dependencies | {data.optional_total} |")
             lines.append(f"| Optional - Packaged | {data.optional_packaged} |")
             lines.append(f"| Optional - Missing | {data.optional_missing} |")
+
+        # Dev dependency stats
+        if data.dev_total > 0:
+            lines.append(f"| Dev dependencies | {data.dev_total} |")
+            lines.append(f"| Dev - Packaged | {data.dev_packaged} |")
+            lines.append(f"| Dev - Missing | {data.dev_missing} |")
+
+        # Build dependency stats
+        if data.build_total > 0:
+            lines.append(f"| Build dependencies | {data.build_total} |")
+            lines.append(f"| Build - Packaged | {data.build_packaged} |")
+            lines.append(f"| Build - Missing | {data.build_missing} |")
         lines.append("")
+
+        # Features / Extras
+        if data.features:
+            lines.append("## Features / Extras")
+            lines.append("")
+            for feature in data.features:
+                feature_name = (
+                    feature.name
+                    if hasattr(feature, "name")
+                    else feature.get("name", "")
+                )
+                deps = (
+                    feature.dependencies
+                    if hasattr(feature, "dependencies")
+                    else feature.get("dependencies", [])
+                )
+                if deps:
+                    lines.append(f"- **{feature_name}**: {', '.join(deps)}")
+                else:
+                    lines.append(f"- **{feature_name}**")
+            lines.append("")
+
+        # Dev dependencies
+        if data.dev_dependencies:
+            lines.append("## Dev Dependencies")
+            lines.append("")
+            lines.append("| Package | Version Req | Fedora Status |")
+            lines.append("|---------|-------------|---------------|")
+            for dep in data.dev_dependencies:
+                status = "Packaged" if dep["is_packaged"] else "Missing"
+                ver_info = (
+                    f" ({', '.join(dep['fedora_versions'])})"
+                    if dep.get("fedora_versions")
+                    else ""
+                )
+                lines.append(
+                    f"| `{dep['name']}` | {dep['version_requirement']} | {status}{ver_info} |"
+                )
+            lines.append("")
+
+        # Build dependencies
+        if data.build_dependencies:
+            lines.append("## Build Dependencies")
+            lines.append("")
+            lines.append("| Package | Version Req | Fedora Status |")
+            lines.append("|---------|-------------|---------------|")
+            for dep in data.build_dependencies:
+                status = "Packaged" if dep["is_packaged"] else "Missing"
+                ver_info = (
+                    f" ({', '.join(dep['fedora_versions'])})"
+                    if dep.get("fedora_versions")
+                    else ""
+                )
+                lines.append(
+                    f"| `{dep['name']}` | {dep['version_requirement']} | {status}{ver_info} |"
+                )
+            lines.append("")
 
         # Missing packages - use computed properties from ReportData
         required_missing = data.required_missing_packages

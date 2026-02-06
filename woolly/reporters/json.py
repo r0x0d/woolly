@@ -18,6 +18,7 @@ class TreeNodeData(BaseModel):
     raw: str
     name: Optional[str] = None
     version: Optional[str] = None
+    license: Optional[str] = None
     optional: bool = False
     status: Optional[str] = None
     is_packaged: Optional[bool] = None
@@ -34,10 +35,28 @@ class ReportMetadata(BaseModel):
     root_package: str
     language: str
     registry: str
+    license: Optional[str] = None
     version: Optional[str] = None
     max_depth: int
     include_optional: bool
     missing_only: bool = False
+
+
+class DevBuildDepData(BaseModel):
+    """Structured data for a dev or build dependency."""
+
+    name: str
+    version_requirement: str
+    is_packaged: bool
+    fedora_versions: list[str] = Field(default_factory=list)
+    fedora_packages: list[str] = Field(default_factory=list)
+
+
+class FeatureData(BaseModel):
+    """Structured data for a feature flag or extra."""
+
+    name: str
+    dependencies: list[str] = Field(default_factory=list)
 
 
 class ReportSummary(BaseModel):
@@ -47,10 +66,20 @@ class ReportSummary(BaseModel):
     packaged_count: int
     missing_count: int
     optional: "OptionalSummary"
+    dev: "DevBuildSummary"
+    build: "DevBuildSummary"
 
 
 class OptionalSummary(BaseModel):
     """Optional dependency statistics."""
+
+    total: int
+    packaged: int
+    missing: int
+
+
+class DevBuildSummary(BaseModel):
+    """Dev or build dependency statistics."""
 
     total: int
     packaged: int
@@ -65,6 +94,9 @@ class JsonReport(BaseModel):
     missing_packages: list[str]
     missing_optional_packages: list[str]
     packaged_packages: list[str]
+    features: list[FeatureData] = Field(default_factory=list)
+    dev_dependencies: list[DevBuildDepData] = Field(default_factory=list)
+    build_dependencies: list[DevBuildDepData] = Field(default_factory=list)
     dependency_tree: TreeNodeData
 
 
@@ -78,12 +110,49 @@ class JsonReporter(Reporter):
 
     def generate(self, data: ReportData) -> str:
         """Generate JSON report content."""
+        # Convert features to FeatureData
+        features_data = []
+        for f in data.features:
+            if hasattr(f, "name"):
+                features_data.append(
+                    FeatureData(name=f.name, dependencies=f.dependencies)
+                )
+            else:
+                features_data.append(
+                    FeatureData(
+                        name=f.get("name", ""), dependencies=f.get("dependencies", [])
+                    )
+                )
+
+        # Convert dev/build deps to DevBuildDepData
+        dev_deps_data = [
+            DevBuildDepData(
+                name=d["name"],
+                version_requirement=d["version_requirement"],
+                is_packaged=d["is_packaged"],
+                fedora_versions=d.get("fedora_versions", []),
+                fedora_packages=d.get("fedora_packages", []),
+            )
+            for d in data.dev_dependencies
+        ]
+        build_deps_data = [
+            DevBuildDepData(
+                name=d["name"],
+                version_requirement=d["version_requirement"],
+                is_packaged=d["is_packaged"],
+                fedora_versions=d.get("fedora_versions", []),
+                fedora_packages=d.get("fedora_packages", []),
+            )
+            for d in data.build_dependencies
+        ]
+
         report = JsonReport(
             metadata=ReportMetadata(
                 generated_at=data.timestamp.isoformat(),
                 root_package=data.root_package,
                 language=data.language,
                 registry=data.registry,
+                license=data.root_license,
                 version=data.version,
                 max_depth=data.max_depth,
                 include_optional=data.include_optional,
@@ -98,6 +167,16 @@ class JsonReporter(Reporter):
                     packaged=data.optional_packaged,
                     missing=data.optional_missing,
                 ),
+                dev=DevBuildSummary(
+                    total=data.dev_total,
+                    packaged=data.dev_packaged,
+                    missing=data.dev_missing,
+                ),
+                build=DevBuildSummary(
+                    total=data.build_total,
+                    packaged=data.build_packaged,
+                    missing=data.build_missing,
+                ),
             ),
             missing_packages=sorted(data.required_missing_packages),
             missing_optional_packages=sorted(data.optional_missing_set),
@@ -105,6 +184,9 @@ class JsonReporter(Reporter):
             packaged_packages=[]
             if data.missing_only
             else sorted(data.unique_packaged_packages),
+            features=features_data,
+            dev_dependencies=dev_deps_data,
+            build_dependencies=build_deps_data,
             dependency_tree=self._tree_to_model(data.tree),
         )
 
@@ -133,10 +215,22 @@ class JsonReporter(Reporter):
         # Check if this is an optional dependency
         node.optional = "(optional)" in clean_label
 
+        # Try to extract license from the label (format: "(LICENSE)" before optional/status)
+        license_match = re.search(
+            r"v[\d.]+\s*\(([^)]+)\)\s*(?:\(optional\))?\s*•", clean_label
+        )
+        if license_match:
+            potential_license = license_match.group(1)
+            # Make sure it's not a version number or "optional"
+            if potential_license != "optional" and not re.match(
+                r"^[\d., ]+$", potential_license
+            ):
+                node.license = potential_license
+
         # Try to extract package name and version
-        # Pattern: "package_name vX.Y.Z (optional) • status" or "package_name vX.Y.Z • status"
+        # Pattern: "package_name vX.Y.Z (LICENSE) (optional) • status" or "package_name vX.Y.Z • status"
         match = re.match(
-            r"^(\S+)\s*(?:v([\d.]+))?\s*(?:\(optional\))?\s*•\s*(.+)$",
+            r"^(\S+)\s*(?:v([\d.]+))?\s*(?:\([^)]*\))?\s*(?:\(optional\))?\s*•\s*(.+)$",
             clean_label.strip(),
         )
         if match:

@@ -13,6 +13,7 @@ import pytest
 
 from woolly.languages.base import (
     Dependency,
+    FeatureInfo,
     FedoraPackageStatus,
     LanguageProvider,
     PackageInfo,
@@ -37,6 +38,9 @@ class ConcreteProvider(LanguageProvider):
 
     def fetch_dependencies(self, package_name: str, version: str):
         return self._dependencies
+
+    def fetch_features(self, package_name: str, version: str):
+        return []
 
 
 class TestPackageInfo:
@@ -69,6 +73,13 @@ class TestPackageInfo:
         assert info.description is None
         assert info.homepage is None
         assert info.repository is None
+        assert info.license is None
+
+    @pytest.mark.unit
+    def test_license_field(self):
+        """Good path: PackageInfo with license field."""
+        info = PackageInfo(name="test", latest_version="1.0.0", license="MIT")
+        assert info.license == "MIT"
 
 
 class TestDependency:
@@ -87,6 +98,13 @@ class TestDependency:
         dep = Dependency(name="dep", version_requirement="*")
         assert dep.optional is False
         assert dep.kind == "normal"
+        assert dep.group is None
+
+    @pytest.mark.unit
+    def test_group_field(self):
+        """Good path: Dependency with group field."""
+        dep = Dependency(name="dep", version_requirement="*", group="socks")
+        assert dep.group == "socks"
 
     @pytest.mark.unit
     def test_all_kinds(self):
@@ -363,3 +381,96 @@ class TestLanguageProviderCheckFedoraPackaging:
         assert status.is_packaged is False
         assert status.versions == []
         assert status.package_names == []
+
+
+class TestFeatureInfo:
+    """Tests for FeatureInfo model."""
+
+    @pytest.mark.unit
+    def test_required_fields(self):
+        """Good path: FeatureInfo with required fields."""
+        feature = FeatureInfo(name="default")
+        assert feature.name == "default"
+        assert feature.dependencies == []
+
+    @pytest.mark.unit
+    def test_with_dependencies(self):
+        """Good path: FeatureInfo with dependencies."""
+        feature = FeatureInfo(name="derive", dependencies=["serde_derive"])
+        assert feature.name == "derive"
+        assert "serde_derive" in feature.dependencies
+
+
+class TestLanguageProviderGetDevDependencies:
+    """Tests for LanguageProvider.get_dev_dependencies method."""
+
+    @pytest.mark.unit
+    def test_returns_dev_deps_only(self):
+        """Good path: returns only dev dependencies."""
+        provider = ConcreteProvider()
+        provider._package_info = PackageInfo(name="test", latest_version="1.0.0")
+        provider._dependencies = [
+            Dependency(name="normal-dep", version_requirement=">=1.0", kind="normal"),
+            Dependency(name="dev-dep", version_requirement=">=1.0", kind="dev"),
+            Dependency(name="build-dep", version_requirement=">=1.0", kind="build"),
+        ]
+
+        dev_deps = provider.get_dev_dependencies("test", "1.0.0")
+
+        assert len(dev_deps) == 1
+        assert dev_deps[0].name == "dev-dep"
+        assert dev_deps[0].kind == "dev"
+
+    @pytest.mark.unit
+    def test_returns_empty_when_no_dev_deps(self):
+        """Good path: returns empty list when no dev deps."""
+        provider = ConcreteProvider()
+        provider._package_info = PackageInfo(name="test", latest_version="1.0.0")
+        provider._dependencies = [
+            Dependency(name="normal-dep", version_requirement=">=1.0", kind="normal"),
+        ]
+
+        dev_deps = provider.get_dev_dependencies("test", "1.0.0")
+
+        assert dev_deps == []
+
+    @pytest.mark.unit
+    def test_returns_empty_when_package_not_found(self):
+        """Bad path: returns empty list when package not found."""
+        provider = ConcreteProvider()
+        provider._package_info = None
+
+        dev_deps = provider.get_dev_dependencies("nonexistent")
+
+        assert dev_deps == []
+
+
+class TestLanguageProviderGetBuildDependencies:
+    """Tests for LanguageProvider.get_build_dependencies method."""
+
+    @pytest.mark.unit
+    def test_returns_build_deps_only(self):
+        """Good path: returns only build dependencies."""
+        provider = ConcreteProvider()
+        provider._package_info = PackageInfo(name="test", latest_version="1.0.0")
+        provider._dependencies = [
+            Dependency(name="normal-dep", version_requirement=">=1.0", kind="normal"),
+            Dependency(name="dev-dep", version_requirement=">=1.0", kind="dev"),
+            Dependency(name="build-dep", version_requirement=">=1.0", kind="build"),
+        ]
+
+        build_deps = provider.get_build_dependencies("test", "1.0.0")
+
+        assert len(build_deps) == 1
+        assert build_deps[0].name == "build-dep"
+        assert build_deps[0].kind == "build"
+
+    @pytest.mark.unit
+    def test_returns_empty_when_package_not_found(self):
+        """Bad path: returns empty list when package not found."""
+        provider = ConcreteProvider()
+        provider._package_info = None
+
+        build_deps = provider.get_build_dependencies("nonexistent")
+
+        assert build_deps == []

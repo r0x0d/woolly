@@ -41,6 +41,9 @@ class MockProvider(LanguageProvider):
     def fetch_dependencies(self, package_name: str, version: str):
         return self.dependencies.get(f"{package_name}:{version}", [])
 
+    def fetch_features(self, package_name: str, version: str):
+        return []
+
     def check_fedora_packaging(self, package_name: str):
         return self.fedora_status.get(
             package_name, FedoraPackageStatus(is_packaged=False)
@@ -156,6 +159,32 @@ class TestBuildTree:
         assert isinstance(tree, Tree)
         label = str(tree.label)
         assert "1.0.0" in label
+
+    @pytest.mark.unit
+    def test_includes_license_in_label(self, provider):
+        """Good path: license is shown in tree label."""
+        provider.packages["licensed-pkg"] = PackageInfo(
+            name="licensed-pkg", latest_version="1.0.0", license="MIT"
+        )
+        provider.fedora_status["licensed-pkg"] = FedoraPackageStatus(
+            is_packaged=True, versions=["1.0.0"]
+        )
+
+        tree = build_tree(provider, "licensed-pkg")
+
+        assert isinstance(tree, Tree)
+        label = str(tree.label)
+        assert "MIT" in label
+
+    @pytest.mark.unit
+    def test_no_license_marker_when_no_license(self, provider):
+        """Good path: no license marker when package has no license."""
+        tree = build_tree(provider, "root")
+
+        assert isinstance(tree, Tree)
+        label = str(tree.label)
+        # License info from mock_package_info is None, so no license marker
+        assert "(None)" not in label
 
     @pytest.mark.unit
     def test_updates_progress_tracker(self, provider):
@@ -403,3 +432,19 @@ class TestCollectStats:
         assert hasattr(stats, "missing")
         assert hasattr(stats, "missing_list")
         assert hasattr(stats, "packaged_list")
+
+    @pytest.mark.unit
+    def test_has_dev_build_stats(self):
+        """Good path: stats model has dev/build dependency stats."""
+        tree = Tree("[bold]pkg[/bold]")
+
+        stats = collect_stats(tree)
+
+        assert hasattr(stats, "dev_total")
+        assert hasattr(stats, "dev_packaged")
+        assert hasattr(stats, "dev_missing")
+        assert hasattr(stats, "build_total")
+        assert hasattr(stats, "build_packaged")
+        assert hasattr(stats, "build_missing")
+        assert stats.dev_total == 0
+        assert stats.build_total == 0

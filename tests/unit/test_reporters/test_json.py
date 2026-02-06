@@ -66,6 +66,30 @@ class TestJsonReporterGenerate:
         assert parsed["summary"]["total_dependencies"] == 5
         assert parsed["summary"]["packaged_count"] == 3
         assert parsed["summary"]["missing_count"] == 2
+        assert "dev" in parsed["summary"]
+        assert "build" in parsed["summary"]
+
+    @pytest.mark.unit
+    def test_includes_features(self, sample_report_data):
+        """Good path: includes features section."""
+        reporter = JsonReporter()
+
+        result = reporter.generate(sample_report_data)
+        parsed = json.loads(result)
+
+        assert "features" in parsed
+        assert isinstance(parsed["features"], list)
+
+    @pytest.mark.unit
+    def test_includes_dev_build_dependencies(self, sample_report_data):
+        """Good path: includes dev and build dependencies sections."""
+        reporter = JsonReporter()
+
+        result = reporter.generate(sample_report_data)
+        parsed = json.loads(result)
+
+        assert "dev_dependencies" in parsed
+        assert "build_dependencies" in parsed
 
     @pytest.mark.unit
     def test_includes_package_lists(self, sample_report_data):
@@ -131,6 +155,17 @@ class TestJsonReporterParseLabel:
         assert result.version == "1.0.200"
         assert result.status == "packaged"
         assert "1.0.200" in result.fedora_versions
+
+    @pytest.mark.unit
+    def test_parses_label_with_license(self, reporter):
+        """Good path: parses label with license info."""
+        label = "[bold]serde[/bold] [dim]v1.0.200[/dim] [magenta](MIT OR Apache-2.0)[/magenta] • [green]✓ packaged[/green] [dim](1.0.200)[/dim]"
+
+        result = reporter._parse_label(label)
+
+        assert result.name == "serde"
+        assert result.version == "1.0.200"
+        assert result.license == "MIT OR Apache-2.0"
 
     @pytest.mark.unit
     def test_parses_not_packaged_label(self, reporter):

@@ -9,7 +9,7 @@ Tests cover:
 
 import pytest
 
-from woolly.languages.base import Dependency, PackageInfo
+from woolly.languages.base import Dependency, FeatureInfo, PackageInfo
 from woolly.languages.rust import RustProvider
 
 
@@ -46,6 +46,7 @@ class TestRustProviderFetchPackageInfo:
         assert info.name == "serde"
         assert info.latest_version == "1.0.200"
         assert info.description == "A serialization framework for Rust"
+        assert info.license == "MIT OR Apache-2.0"
 
     @pytest.mark.unit
     def test_returns_none_for_404(self, temp_cache_dir, mocker, make_httpx_response):
@@ -218,3 +219,111 @@ class TestRustProviderAlternativeNames:
         # Name with underscore
         alt2 = provider.get_alternative_names("my_crate_name")
         assert "my-crate-name" in alt2
+
+
+class TestRustProviderFetchFeatures:
+    """Tests for RustProvider.fetch_features method."""
+
+    @pytest.mark.unit
+    def test_returns_features(
+        self,
+        temp_cache_dir,
+        mocker,
+        make_httpx_response,
+        mock_crates_io_version_response,
+    ):
+        """Good path: returns list of FeatureInfo."""
+        provider = RustProvider()
+
+        response = make_httpx_response(200, mock_crates_io_version_response)
+        mocker.patch("httpx.get", return_value=response)
+
+        features = provider.fetch_features("serde", "1.0.200")
+
+        assert len(features) == 4
+        assert all(isinstance(f, FeatureInfo) for f in features)
+
+        # Check sorted order and content
+        feature_names = [f.name for f in features]
+        assert "default" in feature_names
+        assert "derive" in feature_names
+        assert "std" in feature_names
+        assert "alloc" in feature_names
+
+        # Check default feature has dependencies
+        default = next(f for f in features if f.name == "default")
+        assert "std" in default.dependencies
+        assert "derive" in default.dependencies
+
+    @pytest.mark.unit
+    def test_returns_empty_on_error(self, temp_cache_dir, mocker, make_httpx_response):
+        """Bad path: returns empty list on API error."""
+        provider = RustProvider()
+
+        response = make_httpx_response(404)
+        mocker.patch("httpx.get", return_value=response)
+
+        features = provider.fetch_features("nonexistent", "1.0.0")
+
+        assert features == []
+
+    @pytest.mark.unit
+    def test_uses_cache(
+        self,
+        temp_cache_dir,
+        mocker,
+        make_httpx_response,
+        mock_crates_io_version_response,
+    ):
+        """Critical path: uses cached features."""
+        provider = RustProvider()
+
+        response = make_httpx_response(200, mock_crates_io_version_response)
+        mock_get = mocker.patch("httpx.get", return_value=response)
+
+        provider.fetch_features("serde", "1.0.200")
+        provider.fetch_features("serde", "1.0.200")
+
+        assert mock_get.call_count == 1
+
+
+class TestRustProviderLicense:
+    """Tests for license extraction in RustProvider."""
+
+    @pytest.mark.unit
+    def test_license_from_cache(
+        self, temp_cache_dir, mocker, make_httpx_response, mock_crates_io_response
+    ):
+        """Good path: license is extracted from cached response."""
+        provider = RustProvider()
+
+        response = make_httpx_response(200, mock_crates_io_response)
+        mocker.patch("httpx.get", return_value=response)
+
+        # First call populates cache
+        provider.fetch_package_info("serde")
+        # Second call uses cache
+        info = provider.fetch_package_info("serde")
+
+        assert info.license == "MIT OR Apache-2.0"
+
+    @pytest.mark.unit
+    def test_license_none_when_missing(
+        self, temp_cache_dir, mocker, make_httpx_response
+    ):
+        """Good path: license is None when not in response."""
+        provider = RustProvider()
+
+        response_data = {
+            "crate": {
+                "name": "no-license",
+                "newest_version": "1.0.0",
+                "description": "No license",
+            }
+        }
+        response = make_httpx_response(200, response_data)
+        mocker.patch("httpx.get", return_value=response)
+
+        info = provider.fetch_package_info("no-license")
+
+        assert info.license is None

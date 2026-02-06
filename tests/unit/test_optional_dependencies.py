@@ -39,6 +39,9 @@ class MockProvider(LanguageProvider):
     def fetch_dependencies(self, package_name: str, version: str):
         return self.dependencies.get(f"{package_name}:{version}", [])
 
+    def fetch_features(self, package_name: str, version: str):
+        return []
+
     def check_fedora_packaging(self, package_name: str):
         return self.fedora_status.get(
             package_name, FedoraPackageStatus(is_packaged=False)
@@ -357,6 +360,12 @@ class TestCollectStatsOptional:
             "optional_packaged",
             "optional_missing",
             "optional_missing_list",
+            "dev_total",
+            "dev_packaged",
+            "dev_missing",
+            "build_total",
+            "build_packaged",
+            "build_missing",
         ]
         for attr in required_attrs:
             assert hasattr(stats, attr), f"Missing attribute: {attr}"

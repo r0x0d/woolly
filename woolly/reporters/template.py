@@ -23,6 +23,7 @@ class TemplateReporter(Reporter):
             - root_package: Name of the analyzed package
             - language: Language/ecosystem name (e.g., "Rust", "Python")
             - registry: Registry name (e.g., "crates.io", "PyPI")
+            - root_license: License of the root package (or None)
             - version: Package version (if specified)
             - timestamp: Formatted timestamp string (YYYY-MM-DD HH:MM:SS)
             - max_depth: Maximum recursion depth used
@@ -37,6 +38,15 @@ class TemplateReporter(Reporter):
             - optional_total: Total optional dependencies
             - optional_packaged: Optional deps available in Fedora
             - optional_missing: Optional deps missing from Fedora
+
+        Dev/Build dependency statistics:
+            - dev_total, dev_packaged, dev_missing: Dev dep counts
+            - build_total, build_packaged, build_missing: Build dep counts
+            - dev_dependencies: List of dev dep dicts with Fedora status
+            - build_dependencies: List of build dep dicts with Fedora status
+
+        Features / Extras:
+            - features: List of feature/extra objects with name and dependencies
 
         Package lists (sorted):
             - missing_packages: List of missing required package names
@@ -116,11 +126,20 @@ class TemplateReporter(Reporter):
         Returns:
             Dictionary of template variables.
         """
+        # Convert features to plain dicts for template use
+        features_list = []
+        for f in data.features:
+            if hasattr(f, "name"):
+                features_list.append({"name": f.name, "dependencies": f.dependencies})
+            else:
+                features_list.append(f)
+
         return {
             # Metadata
             "root_package": data.root_package,
             "language": data.language,
             "registry": data.registry,
+            "root_license": data.root_license,
             "version": data.version,
             "timestamp": data.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
             "max_depth": data.max_depth,
@@ -133,6 +152,17 @@ class TemplateReporter(Reporter):
             "optional_total": data.optional_total,
             "optional_packaged": data.optional_packaged,
             "optional_missing": data.optional_missing,
+            # Dev/Build dependency statistics
+            "dev_total": data.dev_total,
+            "dev_packaged": data.dev_packaged,
+            "dev_missing": data.dev_missing,
+            "build_total": data.build_total,
+            "build_packaged": data.build_packaged,
+            "build_missing": data.build_missing,
+            "dev_dependencies": data.dev_dependencies,
+            "build_dependencies": data.build_dependencies,
+            # Features / Extras
+            "features": features_list,
             # Package lists (sorted for consistent output)
             "missing_packages": sorted(data.required_missing_packages),
             "packaged_packages": sorted(data.unique_packaged_packages),
