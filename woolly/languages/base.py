@@ -30,7 +30,10 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 from woolly.cache import FEDORA_CACHE_TTL, read_cache, write_cache
-from woolly.debug import log_cache_hit, log_cache_miss, log_command_output
+from woolly.debug import log, log_cache_hit, log_cache_miss, log_command_output
+
+# Default timeout (seconds) for dnf repoquery subprocess calls.
+_DNF_TIMEOUT = 60
 
 
 class PackageInfo(BaseModel):
@@ -90,6 +93,10 @@ class LanguageProvider(ABC):
     registry_name: str
     fedora_provides_prefix: str
     cache_namespace: str
+
+    # Optional Fedora targeting attributes (set at runtime)
+    fedora_release: Optional[str] = None
+    fedora_repos: Optional[list[str]] = None
 
     # ----------------------------------------------------------------
     # Abstract methods - MUST be implemented by subclasses
@@ -233,6 +240,46 @@ class LanguageProvider(ABC):
         deps = self.fetch_dependencies(package_name, version)
         return [d for d in deps if d.kind == "build"]
 
+    def get_all_dependencies(
+        self,
+        package_name: str,
+        version: Optional[str] = None,
+        include_optional: bool = False,
+    ) -> tuple[list[tuple[str, str, bool]], list[Dependency], list[Dependency]]:
+        """
+        Fetch all dependencies in a single call and partition by kind.
+
+        This avoids repeated ``fetch_dependencies`` (and its cache reads)
+        when the caller needs normal, dev, and build dependencies for the
+        same package/version.
+
+        Args:
+            package_name: The name of the package.
+            version: Specific version, or None for latest.
+            include_optional: If True, include optional normal dependencies.
+
+        Returns:
+            Tuple of (normal_deps, dev_deps, build_deps) where
+            normal_deps is a list of ``(name, version_requirement, is_optional)``
+            tuples, and dev/build_deps are lists of :class:`Dependency`.
+        """
+        if version is None:
+            version = self.get_latest_version(package_name)
+            if version is None:
+                return ([], [], [])
+
+        deps = self.fetch_dependencies(package_name, version)
+
+        normal = [
+            (d.name, d.version_requirement, d.optional)
+            for d in deps
+            if d.kind == "normal" and (include_optional or not d.optional)
+        ]
+        dev = [d for d in deps if d.kind == "dev"]
+        build = [d for d in deps if d.kind == "build"]
+
+        return (normal, dev, build)
+
     def get_fedora_provides_pattern(self, package_name: str) -> str:
         """
         Get the Fedora provides pattern for this package.
@@ -283,6 +330,44 @@ class LanguageProvider(ABC):
     # Fedora repository query methods - shared implementation
     # ----------------------------------------------------------------
 
+    def _fedora_cache_suffix(self) -> str:
+        """
+        Build a cache-key suffix that incorporates the targeted
+        Fedora release and repo selection so that results for different
+        targets are cached independently.
+
+        Returns:
+            A string suffix (may be empty when no targeting is set).
+        """
+        parts: list[str] = []
+        if self.fedora_release:
+            parts.append(f"rel={self.fedora_release}")
+        if self.fedora_repos:
+            parts.append(f"repos={','.join(sorted(self.fedora_repos))}")
+        return ":".join(parts)
+
+    def _build_dnf_repoquery_cmd(self, extra_args: list[str]) -> list[str]:
+        """
+        Build the base ``dnf repoquery`` command, injecting
+        ``--releasever`` and ``--repo`` flags when Fedora targeting
+        attributes are set.
+
+        Args:
+            extra_args: Additional arguments appended after the base
+                command (e.g. ``["--whatprovides", pattern]``).
+
+        Returns:
+            Full command list ready for :func:`subprocess.check_output`.
+        """
+        cmd = ["dnf", "repoquery"]
+        if self.fedora_release:
+            cmd.append(f"--releasever={self.fedora_release}")
+        if self.fedora_repos:
+            for repo in self.fedora_repos:
+                cmd.extend(["--repo", repo])
+        cmd.extend(extra_args)
+        return cmd
+
     def _repoquery_package(
         self, package_name: str
     ) -> tuple[bool, list[str], list[str]]:
@@ -295,7 +380,10 @@ class LanguageProvider(ABC):
         Returns:
             Tuple of (is_packaged, versions_list, package_names)
         """
+        suffix = self._fedora_cache_suffix()
         cache_key = f"repoquery:{self.name}:{package_name}"
+        if suffix:
+            cache_key += f":{suffix}"
         cached = read_cache("fedora", cache_key, FEDORA_CACHE_TTL)
         if cached is not None:
             log_cache_hit("fedora", cache_key)
@@ -303,14 +391,14 @@ class LanguageProvider(ABC):
 
         log_cache_miss("fedora", cache_key)
         provide_pattern = self.get_fedora_provides_pattern(package_name)
-        cmd = [
-            "dnf",
-            "repoquery",
-            "--whatprovides",
-            provide_pattern,
-            "--queryformat",
-            "%{NAME}|%{VERSION}",
-        ]
+        cmd = self._build_dnf_repoquery_cmd(
+            [
+                "--whatprovides",
+                provide_pattern,
+                "--queryformat",
+                "%{NAME}|%{VERSION}",
+            ]
+        )
 
         try:
             out = (
@@ -318,6 +406,7 @@ class LanguageProvider(ABC):
                     cmd,
                     stdin=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
+                    timeout=_DNF_TIMEOUT,
                 )
                 .decode()
                 .strip()
@@ -341,6 +430,11 @@ class LanguageProvider(ABC):
             result = (True, sorted(versions), sorted(packages))
             write_cache("fedora", cache_key, [result[0], result[1], result[2]])
             return result
+        except subprocess.TimeoutExpired:
+            log(" ".join(cmd), level="warning", reason="timeout")
+            result = (False, [], [])
+            write_cache("fedora", cache_key, list(result))
+            return result
         except subprocess.CalledProcessError as e:
             log_command_output(" ".join(cmd), "", exit_code=e.returncode)
             result = (False, [], [])
@@ -357,7 +451,10 @@ class LanguageProvider(ABC):
         Returns:
             List of version strings provided by Fedora packages.
         """
+        suffix = self._fedora_cache_suffix()
         cache_key = f"provides:{self.name}:{package_name}"
+        if suffix:
+            cache_key += f":{suffix}"
         cached = read_cache("fedora", cache_key, FEDORA_CACHE_TTL)
         if cached is not None:
             log_cache_hit("fedora", cache_key)
@@ -366,7 +463,13 @@ class LanguageProvider(ABC):
         log_cache_miss("fedora", cache_key)
         provide_pattern = self.get_fedora_provides_pattern(package_name)
         normalized = self.normalize_package_name(package_name)
-        cmd = ["dnf", "repoquery", "--provides", "--whatprovides", provide_pattern]
+        cmd = self._build_dnf_repoquery_cmd(
+            [
+                "--provides",
+                "--whatprovides",
+                provide_pattern,
+            ]
+        )
 
         try:
             out = (
@@ -374,6 +477,7 @@ class LanguageProvider(ABC):
                     cmd,
                     stdin=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
+                    timeout=_DNF_TIMEOUT,
                 )
                 .decode()
                 .strip()
@@ -398,6 +502,10 @@ class LanguageProvider(ABC):
             result = sorted(versions)
             write_cache("fedora", cache_key, result)
             return result
+        except subprocess.TimeoutExpired:
+            log(" ".join(cmd), level="warning", reason="timeout")
+            write_cache("fedora", cache_key, [])
+            return []
         except subprocess.CalledProcessError as e:
             log_command_output(" ".join(cmd), "", exit_code=e.returncode)
             write_cache("fedora", cache_key, [])

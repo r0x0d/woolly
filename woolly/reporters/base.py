@@ -91,6 +91,10 @@ class ReportData(BaseModel):
     max_depth: int = 50
     version: Optional[str] = None
 
+    # Fedora targeting
+    fedora_release: Optional[str] = None
+    fedora_repos: Optional[list[str]] = None
+
     # Display options
     missing_only: bool = False
 

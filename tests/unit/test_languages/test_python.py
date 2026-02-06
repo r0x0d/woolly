@@ -38,7 +38,7 @@ class TestPythonProviderFetchPackageInfo:
         provider = PythonProvider()
 
         response = make_httpx_response(200, mock_pypi_response)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         info = provider.fetch_package_info("requests")
 
@@ -54,7 +54,7 @@ class TestPythonProviderFetchPackageInfo:
         provider = PythonProvider()
 
         response = make_httpx_response(404)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         info = provider.fetch_package_info("nonexistent-package-12345")
 
@@ -66,7 +66,7 @@ class TestPythonProviderFetchPackageInfo:
         provider = PythonProvider()
 
         response = make_httpx_response(500)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         with pytest.raises(RuntimeError) as exc_info:
             provider.fetch_package_info("some-package")
@@ -81,7 +81,7 @@ class TestPythonProviderFetchPackageInfo:
         provider = PythonProvider()
 
         response = make_httpx_response(200, mock_pypi_response)
-        mock_get = mocker.patch("httpx.get", return_value=response)
+        mock_get = mocker.patch("woolly.http.get", return_value=response)
 
         provider.fetch_package_info("requests")
         provider.fetch_package_info("requests")
@@ -100,7 +100,7 @@ class TestPythonProviderFetchDependencies:
         provider = PythonProvider()
 
         response = make_httpx_response(200, mock_pypi_response)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         deps = provider.fetch_dependencies("requests", "2.31.0")
 
@@ -119,7 +119,7 @@ class TestPythonProviderFetchDependencies:
         provider = PythonProvider()
 
         response = make_httpx_response(200, mock_pypi_response)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         deps = provider.fetch_dependencies("requests", "2.31.0")
 
@@ -134,7 +134,7 @@ class TestPythonProviderFetchDependencies:
         provider = PythonProvider()
 
         response = make_httpx_response(404)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         deps = provider.fetch_dependencies("nonexistent", "1.0.0")
 
@@ -156,7 +156,7 @@ class TestPythonProviderFetchDependencies:
             }
         }
         response = make_httpx_response(200, response_data)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         deps = provider.fetch_dependencies("simple-pkg", "1.0.0")
 
@@ -307,7 +307,7 @@ class TestPythonProviderFetchFeatures:
         provider = PythonProvider()
 
         response = make_httpx_response(200, mock_pypi_version_response)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         features = provider.fetch_features("requests", "2.31.0")
 
@@ -333,7 +333,7 @@ class TestPythonProviderFetchFeatures:
         provider = PythonProvider()
 
         response = make_httpx_response(404)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         features = provider.fetch_features("nonexistent", "1.0.0")
 
@@ -347,7 +347,7 @@ class TestPythonProviderFetchFeatures:
         provider = PythonProvider()
 
         response = make_httpx_response(200, mock_pypi_version_response)
-        mock_get = mocker.patch("httpx.get", return_value=response)
+        mock_get = mocker.patch("woolly.http.get", return_value=response)
 
         provider.fetch_features("requests", "2.31.0")
         provider.fetch_features("requests", "2.31.0")
@@ -366,7 +366,7 @@ class TestPythonProviderLicense:
         provider = PythonProvider()
 
         response = make_httpx_response(200, mock_pypi_response)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         info = provider.fetch_package_info("requests")
 
@@ -389,7 +389,7 @@ class TestPythonProviderLicense:
             }
         }
         response = make_httpx_response(200, response_data)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         info = provider.fetch_package_info("modern-pkg")
 
@@ -410,7 +410,7 @@ class TestPythonProviderLicense:
             }
         }
         response = make_httpx_response(200, response_data)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         info = provider.fetch_package_info("no-license")
 
@@ -442,7 +442,7 @@ class TestPythonProviderLicense:
             }
         }
         response = make_httpx_response(200, response_data)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         info = provider.fetch_package_info("old-pkg")
 
@@ -468,7 +468,7 @@ class TestPythonProviderLicense:
             }
         }
         response = make_httpx_response(200, response_data)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         info = provider.fetch_package_info("old-pkg2")
 
@@ -490,7 +490,7 @@ class TestPythonProviderLicense:
             }
         }
         response = make_httpx_response(200, response_data)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         info = provider.fetch_package_info("some-pkg")
 
@@ -515,7 +515,7 @@ class TestPythonProviderLicense:
             }
         }
         response = make_httpx_response(200, response_data)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         info = provider.fetch_package_info("classified-pkg")
 

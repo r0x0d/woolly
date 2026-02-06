@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 from rich.tree import Tree
 
-from woolly.commands.check import TreeStats, build_tree, collect_stats
+from woolly.commands.check import TreeStats, _compute_stats_from_visited, build_tree
 from woolly.languages.base import (
     Dependency,
     FedoraPackageStatus,
@@ -109,7 +109,7 @@ class TestBuildTree:
     @pytest.mark.unit
     def test_returns_visited_marker_for_duplicate(self, provider):
         """Critical path: returns visited marker for already-visited packages."""
-        visited = {"root": (True, "1.0.0")}
+        visited = {"root": (True, "1.0.0", False)}
 
         result = build_tree(provider, "root", visited=visited)
 
@@ -320,125 +320,98 @@ class TestBuildTree:
         assert len(tree.children) == 1
 
 
-class TestCollectStats:
-    """Tests for collect_stats function."""
+class TestComputeStatsFromVisited:
+    """Tests for _compute_stats_from_visited function."""
 
     @pytest.mark.unit
     def test_returns_tree_stats_model(self):
         """Good path: returns TreeStats model."""
-        tree = Tree("[bold]root[/bold] v1.0.0 • [green]✓ packaged[/green]")
+        visited = {"root": (True, "1.0.0", False)}
 
-        stats = collect_stats(tree)
+        stats = _compute_stats_from_visited(visited)
 
         assert isinstance(stats, TreeStats)
 
     @pytest.mark.unit
     def test_counts_packaged(self):
         """Good path: counts packaged packages."""
-        tree = Tree("[bold]root[/bold] v1.0.0 • [green]✓ packaged[/green]")
+        visited = {"root": (True, "1.0.0", False)}
 
-        stats = collect_stats(tree)
+        stats = _compute_stats_from_visited(visited)
 
-        assert stats.packaged >= 1
+        assert stats.packaged == 1
 
     @pytest.mark.unit
     def test_counts_missing(self):
         """Good path: counts missing packages."""
-        tree = Tree("[bold]root[/bold] v1.0.0 • [red]✗ not packaged[/red]")
+        visited = {"root": (False, "1.0.0", False)}
 
-        stats = collect_stats(tree)
+        stats = _compute_stats_from_visited(visited)
 
-        assert stats.missing >= 1
+        assert stats.missing == 1
 
     @pytest.mark.unit
     def test_collects_missing_list(self):
         """Good path: collects list of missing packages."""
-        tree = Tree("[bold]missing-pkg[/bold] v1.0.0 • [red]✗ not packaged[/red]")
+        visited = {"missing-pkg": (False, "1.0.0", False)}
 
-        stats = collect_stats(tree)
+        stats = _compute_stats_from_visited(visited)
 
-        assert len(stats.missing_list) >= 1
+        assert len(stats.missing_list) == 1
+        assert "missing-pkg" in stats.missing_list
 
     @pytest.mark.unit
     def test_collects_packaged_list(self):
         """Good path: collects list of packaged packages."""
-        tree = Tree("[bold]pkg[/bold] v1.0.0 • [green]✓ packaged[/green]")
+        visited = {"pkg": (True, "1.0.0", False)}
 
-        stats = collect_stats(tree)
+        stats = _compute_stats_from_visited(visited)
 
-        assert len(stats.packaged_list) >= 1
-
-    @pytest.mark.unit
-    def test_handles_string_children(self):
-        """Good path: handles string children (visited markers)."""
-        tree = Tree("[bold]root[/bold]")
-        tree.add("[dim]child[/dim] • [green]✓[/green] (already visited)")
-
-        stats = collect_stats(tree)
-
-        assert stats.total >= 1
+        assert len(stats.packaged_list) == 1
+        assert "pkg" in stats.packaged_list
 
     @pytest.mark.unit
     def test_counts_not_found_as_missing(self):
-        """Good path: counts 'not found' as missing."""
-        tree = Tree("[bold]unknown[/bold] • [red]not found on registry[/red]")
+        """Good path: counts not-found packages (version=None) as missing."""
+        visited = {"unknown": (False, None, False)}
 
-        stats = collect_stats(tree)
-
-        assert stats.missing >= 1
-
-    @pytest.mark.unit
-    def test_extracts_name_from_not_found_string(self):
-        """Bug fix: correctly extracts package name from 'not found' string with [bold red] format."""
-        # This is the format returned by build_tree when a package is not found on the registry
-        tree = Tree("[bold]root[/bold] v1.0.0 • [green]✓ packaged[/green]")
-        # Add a child that represents a package not found on the registry (string format)
-        tree.add(
-            "[bold red]nonexistent-pkg[/bold red] • [red]not found on crates.io[/red]"
-        )
-
-        stats = collect_stats(tree)
+        stats = _compute_stats_from_visited(visited)
 
         assert stats.missing == 1
-        assert "nonexistent-pkg" in stats.missing_list
-        # Ensure we don't have malformed names like "[bold"
-        for name in stats.missing_list:
-            assert not name.startswith("["), f"Malformed package name: {name}"
+        assert "unknown" in stats.missing_list
 
     @pytest.mark.unit
-    def test_recursive_counting(self):
-        """Critical path: counts all nodes recursively."""
-        root = Tree("[bold]root[/bold] v1.0.0 • [green]✓ packaged[/green]")
-        child1 = Tree("[bold]child1[/bold] v1.0.0 • [green]✓ packaged[/green]")
-        child2 = Tree("[bold]child2[/bold] v1.0.0 • [red]✗ not packaged[/red]")
-        root.children.append(child1)
-        root.children.append(child2)
+    def test_multiple_packages(self):
+        """Critical path: counts all packages from visited dict."""
+        visited = {
+            "root": (True, "1.0.0", False),
+            "child1": (True, "1.0.0", False),
+            "child2": (False, "1.0.0", False),
+        }
 
-        stats = collect_stats(root)
+        stats = _compute_stats_from_visited(visited)
 
         assert stats.total == 3
         assert stats.packaged == 2
         assert stats.missing == 1
 
     @pytest.mark.unit
-    def test_initializes_stats_if_not_provided(self):
-        """Good path: initializes stats model if not provided."""
-        tree = Tree("[bold]pkg[/bold]")
+    def test_empty_visited(self):
+        """Good path: handles empty visited dict."""
+        stats = _compute_stats_from_visited({})
 
-        stats = collect_stats(tree)
-
-        assert hasattr(stats, "total")
-        assert hasattr(stats, "packaged")
-        assert hasattr(stats, "missing")
-        assert hasattr(stats, "missing_list")
-        assert hasattr(stats, "packaged_list")
+        assert stats.total == 0
+        assert stats.packaged == 0
+        assert stats.missing == 0
+        assert stats.missing_list == []
+        assert stats.packaged_list == []
 
     @pytest.mark.unit
     def test_has_dev_build_stats(self):
-        """Good path: stats model has dev/build dependency stats."""
-        tree = Tree("[bold]pkg[/bold]")
+        """Good path: stats model has dev/build dependency stats (zeroed by default)."""
+        visited = {"pkg": (True, "1.0.0", False)}
 
-        stats = collect_stats(tree)
+        stats = _compute_stats_from_visited(visited)
 
         assert hasattr(stats, "dev_total")
         assert hasattr(stats, "dev_packaged")
@@ -448,3 +421,20 @@ class TestCollectStats:
         assert hasattr(stats, "build_missing")
         assert stats.dev_total == 0
         assert stats.build_total == 0
+
+    @pytest.mark.unit
+    def test_optional_dependency_tracking(self):
+        """Good path: tracks optional dependency statistics."""
+        visited = {
+            "required": (True, "1.0.0", False),
+            "opt-packaged": (True, "2.0.0", True),
+            "opt-missing": (False, "3.0.0", True),
+        }
+
+        stats = _compute_stats_from_visited(visited)
+
+        assert stats.total == 3
+        assert stats.optional_total == 2
+        assert stats.optional_packaged == 1
+        assert stats.optional_missing == 1
+        assert "opt-missing" in stats.optional_missing_list

@@ -14,6 +14,10 @@ CACHE_DIR = Path.home() / ".cache" / "woolly"
 DEFAULT_CACHE_TTL = 86400 * 7  # 7 days
 FEDORA_CACHE_TTL = 86400  # 1 day for Fedora repoquery data
 
+# Track which namespace directories have already been created so that
+# ``mkdir`` is only called once per namespace per process lifetime.
+_ensured_namespaces: set[str] = set()
+
 
 class CacheEntry(BaseModel):
     """A cached value with timestamp."""
@@ -23,17 +27,28 @@ class CacheEntry(BaseModel):
 
 
 def ensure_cache_dir() -> None:
-    """Create cache directory if it doesn't exist."""
+    """Create the top-level cache directory if it doesn't exist.
+
+    This is idempotent but cheap after the first call because the
+    directory will already exist.
+    """
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def get_cache_path(namespace: str, key: str) -> Path:
-    """Get path for a cache entry."""
-    ensure_cache_dir()
-    ns_dir = CACHE_DIR / namespace
-    ns_dir.mkdir(exist_ok=True)
+    """Get path for a cache entry.
+
+    Namespace directories are only created once per process lifetime
+    to avoid repeated filesystem calls.
+    """
+    if namespace not in _ensured_namespaces:
+        ensure_cache_dir()
+        ns_dir = CACHE_DIR / namespace
+        ns_dir.mkdir(exist_ok=True)
+        _ensured_namespaces.add(namespace)
+
     safe_key = hashlib.md5(key.encode()).hexdigest()
-    return ns_dir / f"{safe_key}.json"
+    return CACHE_DIR / namespace / f"{safe_key}.json"
 
 
 def read_cache(namespace: str, key: str, ttl: int = DEFAULT_CACHE_TTL) -> Optional[Any]:

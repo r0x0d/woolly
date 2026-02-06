@@ -38,7 +38,7 @@ class TestRustProviderFetchPackageInfo:
         provider = RustProvider()
 
         response = make_httpx_response(200, mock_crates_io_response)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         info = provider.fetch_package_info("serde")
 
@@ -54,7 +54,7 @@ class TestRustProviderFetchPackageInfo:
         provider = RustProvider()
 
         response = make_httpx_response(404)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         info = provider.fetch_package_info("nonexistent-crate-12345")
 
@@ -66,7 +66,7 @@ class TestRustProviderFetchPackageInfo:
         provider = RustProvider()
 
         response = make_httpx_response(500)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         with pytest.raises(RuntimeError) as exc_info:
             provider.fetch_package_info("some-crate")
@@ -81,7 +81,7 @@ class TestRustProviderFetchPackageInfo:
         provider = RustProvider()
 
         response = make_httpx_response(200, mock_crates_io_response)
-        mock_get = mocker.patch("httpx.get", return_value=response)
+        mock_get = mocker.patch("woolly.http.get", return_value=response)
 
         # First call
         provider.fetch_package_info("serde")
@@ -96,7 +96,7 @@ class TestRustProviderFetchPackageInfo:
         provider = RustProvider()
 
         response = make_httpx_response(404)
-        mock_get = mocker.patch("httpx.get", return_value=response)
+        mock_get = mocker.patch("woolly.http.get", return_value=response)
 
         # First call
         result1 = provider.fetch_package_info("nonexistent")
@@ -119,7 +119,7 @@ class TestRustProviderFetchDependencies:
         provider = RustProvider()
 
         response = make_httpx_response(200, mock_crates_io_deps_response)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         deps = provider.fetch_dependencies("serde", "1.0.200")
 
@@ -134,7 +134,7 @@ class TestRustProviderFetchDependencies:
         provider = RustProvider()
 
         response = make_httpx_response(404)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         deps = provider.fetch_dependencies("nonexistent", "1.0.0")
 
@@ -153,7 +153,7 @@ class TestRustProviderFetchDependencies:
             ]
         }
         response = make_httpx_response(200, response_data)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         deps = provider.fetch_dependencies("test", "1.0.0")
 
@@ -169,7 +169,7 @@ class TestRustProviderFetchDependencies:
         provider = RustProvider()
 
         response = make_httpx_response(200, mock_crates_io_deps_response)
-        mock_get = mocker.patch("httpx.get", return_value=response)
+        mock_get = mocker.patch("woolly.http.get", return_value=response)
 
         provider.fetch_dependencies("serde", "1.0.200")
         provider.fetch_dependencies("serde", "1.0.200")
@@ -236,7 +236,7 @@ class TestRustProviderFetchFeatures:
         provider = RustProvider()
 
         response = make_httpx_response(200, mock_crates_io_version_response)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         features = provider.fetch_features("serde", "1.0.200")
 
@@ -261,7 +261,7 @@ class TestRustProviderFetchFeatures:
         provider = RustProvider()
 
         response = make_httpx_response(404)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         features = provider.fetch_features("nonexistent", "1.0.0")
 
@@ -279,7 +279,7 @@ class TestRustProviderFetchFeatures:
         provider = RustProvider()
 
         response = make_httpx_response(200, mock_crates_io_version_response)
-        mock_get = mocker.patch("httpx.get", return_value=response)
+        mock_get = mocker.patch("woolly.http.get", return_value=response)
 
         provider.fetch_features("serde", "1.0.200")
         provider.fetch_features("serde", "1.0.200")
@@ -298,7 +298,7 @@ class TestRustProviderLicense:
         provider = RustProvider()
 
         response = make_httpx_response(200, mock_crates_io_response)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         # First call populates cache
         provider.fetch_package_info("serde")
@@ -322,7 +322,7 @@ class TestRustProviderLicense:
             }
         }
         response = make_httpx_response(200, response_data)
-        mocker.patch("httpx.get", return_value=response)
+        mocker.patch("woolly.http.get", return_value=response)
 
         info = provider.fetch_package_info("no-license")
 

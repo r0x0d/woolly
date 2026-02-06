@@ -10,7 +10,7 @@ Tests cover:
 import pytest
 from rich.tree import Tree
 
-from woolly.commands.check import TreeStats, build_tree, collect_stats
+from woolly.commands.check import TreeStats, _compute_stats_from_visited, build_tree
 from woolly.languages.base import (
     Dependency,
     FedoraPackageStatus,
@@ -287,7 +287,7 @@ class TestBuildTreeOptional:
     @pytest.mark.unit
     def test_optional_marker_in_already_visited(self, provider):
         """Critical path: optional marker appears for already visited packages."""
-        visited = {"parent": (True, "1.0.0")}
+        visited = {"parent": (True, "1.0.0", False)}
 
         result = build_tree(provider, "parent", visited=visited, is_optional_dep=True)
 
@@ -296,22 +296,20 @@ class TestBuildTreeOptional:
         assert "already visited" in result
 
 
-class TestCollectStatsOptional:
-    """Tests for collect_stats function with optional dependencies."""
+class TestComputeStatsOptional:
+    """Tests for _compute_stats_from_visited with optional dependencies."""
 
     @pytest.mark.unit
     def test_counts_optional_dependencies(self):
         """Good path: optional dependencies are counted separately."""
-        root = Tree("[bold]root[/bold] v1.0 • [green]✓ packaged[/green]")
-        root.add("[bold]required-dep[/bold] v1.0 • [red]✗ not packaged[/red]")
-        root.add(
-            "[bold]optional-dep[/bold] v1.0 [yellow](optional)[/yellow] • [red]✗ not packaged[/red]"
-        )
-        root.add(
-            "[bold]optional-packaged[/bold] v1.0 [yellow](optional)[/yellow] • [green]✓ packaged[/green]"
-        )
+        visited = {
+            "root": (True, "1.0", False),
+            "required-dep": (False, "1.0", False),
+            "optional-dep": (False, "1.0", True),
+            "optional-packaged": (True, "1.0", True),
+        }
 
-        stats = collect_stats(root)
+        stats = _compute_stats_from_visited(visited)
 
         assert stats.total == 4
         assert stats.optional_total == 2
@@ -320,11 +318,11 @@ class TestCollectStatsOptional:
         assert len(stats.optional_missing_list) == 1
 
     @pytest.mark.unit
-    def test_empty_tree_stats(self):
-        """Good path: stats for tree with no optional deps."""
-        root = Tree("[bold]root[/bold] v1.0 • [green]✓ packaged[/green]")
+    def test_empty_visited_stats(self):
+        """Good path: stats for visited dict with no optional deps."""
+        visited = {"root": (True, "1.0", False)}
 
-        stats = collect_stats(root)
+        stats = _compute_stats_from_visited(visited)
 
         assert stats.total == 1
         assert stats.optional_total == 0
@@ -332,22 +330,11 @@ class TestCollectStatsOptional:
         assert stats.optional_packaged == 0
 
     @pytest.mark.unit
-    def test_stats_include_string_nodes(self):
-        """Good path: string nodes (already visited, max depth) are counted."""
-        root = Tree("[bold]root[/bold] v1.0 • [green]✓ packaged[/green]")
-        root.add("[dim]visited-dep [yellow](optional)[/yellow] (already visited)[/dim]")
-
-        stats = collect_stats(root)
-
-        assert stats.total == 2
-        assert stats.optional_total == 1
-
-    @pytest.mark.unit
     def test_stats_has_all_required_attributes(self):
         """Good path: stats model has all required attributes."""
-        root = Tree("[bold]root[/bold] v1.0 • [green]✓ packaged[/green]")
+        visited = {"root": (True, "1.0", False)}
 
-        stats = collect_stats(root)
+        stats = _compute_stats_from_visited(visited)
 
         assert isinstance(stats, TreeStats)
         required_attrs = [
@@ -371,21 +358,16 @@ class TestCollectStatsOptional:
             assert hasattr(stats, attr), f"Missing attribute: {attr}"
 
     @pytest.mark.unit
-    def test_recursive_counting_with_optional(self):
-        """Critical path: counts all nodes recursively including optional."""
-        root = Tree("[bold]root[/bold] v1.0 • [green]✓ packaged[/green]")
-        child1 = Tree("[bold]child1[/bold] v1.0 • [green]✓ packaged[/green]")
-        child2 = Tree(
-            "[bold]child2[/bold] v1.0 [yellow](optional)[/yellow] • [red]✗ not packaged[/red]"
-        )
-        grandchild = Tree(
-            "[bold]grandchild[/bold] v1.0 [yellow](optional)[/yellow] • [green]✓ packaged[/green]"
-        )
-        child2.children.append(grandchild)
-        root.children.append(child1)
-        root.children.append(child2)
+    def test_counting_with_optional(self):
+        """Critical path: counts all packages including optional."""
+        visited = {
+            "root": (True, "1.0", False),
+            "child1": (True, "1.0", False),
+            "child2": (False, "1.0", True),
+            "grandchild": (True, "1.0", True),
+        }
 
-        stats = collect_stats(root)
+        stats = _compute_stats_from_visited(visited)
 
         assert stats.total == 4
         assert stats.packaged == 3

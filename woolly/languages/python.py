@@ -73,6 +73,43 @@ class PythonProvider(LanguageProvider):
             license=self._extract_license(data["info"]),
         )
 
+    def _fetch_version_data(self, package_name: str, version: str) -> Optional[dict]:
+        """
+        Fetch the raw PyPI JSON response for a specific package version.
+
+        The result is cached under a ``version_data`` key so that both
+        :meth:`fetch_dependencies` and :meth:`fetch_features` can share
+        the same HTTP response without duplicating the request.
+
+        Args:
+            package_name: The name of the package.
+            version: The specific version to fetch.
+
+        Returns:
+            Parsed JSON dict, or None on failure.
+        """
+        cache_key = f"version_data:{package_name}:{version}"
+        cached = read_cache(self.cache_namespace, cache_key, DEFAULT_CACHE_TTL)
+        if cached is not None:
+            log_cache_hit(self.cache_namespace, cache_key)
+            if cached is False:  # Explicit "not found" cache
+                return None
+            return cached
+
+        log_cache_miss(self.cache_namespace, cache_key)
+        url = f"{PYPI_API}/{package_name}/{version}/json"
+        log_api_request("GET", url)
+        r = http.get(url)
+        log_api_response(r.status_code, r.text[:500] if r.text else None)
+
+        if r.status_code != 200:
+            write_cache(self.cache_namespace, cache_key, False)
+            return None
+
+        data = r.json()
+        write_cache(self.cache_namespace, cache_key, data)
+        return data
+
     def fetch_dependencies(self, package_name: str, version: str) -> list[Dependency]:
         """
         Fetch dependencies for a specific package version.
@@ -95,16 +132,11 @@ class PythonProvider(LanguageProvider):
             ]
 
         log_cache_miss(self.cache_namespace, cache_key)
-        url = f"{PYPI_API}/{package_name}/{version}/json"
-        log_api_request("GET", url)
-        r = http.get(url)
-        log_api_response(r.status_code, r.text[:500] if r.text else None)
-
-        if r.status_code != 200:
+        data = self._fetch_version_data(package_name, version)
+        if data is None:
             write_cache(self.cache_namespace, cache_key, [])
             return []
 
-        data = r.json()
         requires_dist = data["info"].get("requires_dist") or []
 
         deps = []
@@ -145,16 +177,11 @@ class PythonProvider(LanguageProvider):
             ]
 
         log_cache_miss(self.cache_namespace, cache_key)
-        url = f"{PYPI_API}/{package_name}/{version}/json"
-        log_api_request("GET", url)
-        r = http.get(url)
-        log_api_response(r.status_code, r.text[:500] if r.text else None)
-
-        if r.status_code != 200:
+        data = self._fetch_version_data(package_name, version)
+        if data is None:
             write_cache(self.cache_namespace, cache_key, [])
             return []
 
-        data = r.json()
         provides_extra = data["info"].get("provides_extra") or []
         requires_dist = data["info"].get("requires_dist") or []
 

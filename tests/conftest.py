@@ -24,6 +24,10 @@ def temp_cache_dir(tmp_path, monkeypatch):
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     monkeypatch.setattr("woolly.cache.CACHE_DIR", cache_dir)
+    # Reset the ensured-namespaces set so that the new CACHE_DIR is used
+    import woolly.cache as _cache_mod
+
+    _cache_mod._ensured_namespaces.clear()
     return cache_dir
 
 

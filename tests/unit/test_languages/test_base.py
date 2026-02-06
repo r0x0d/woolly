@@ -332,6 +332,207 @@ class TestLanguageProviderRepoqueryPackage:
         # Should only call subprocess once
         assert mock_check_output.call_count == 1
 
+    @pytest.mark.unit
+    def test_includes_releasever_flag(self, temp_cache_dir, mocker):
+        """Good path: includes --releasever when fedora_release is set."""
+        provider = ConcreteProvider()
+        provider.fedora_release = "41"
+
+        mock_check_output = mocker.patch(
+            "subprocess.check_output", return_value=b"rust-test|1.0.0"
+        )
+
+        provider._repoquery_package("test")
+
+        cmd = mock_check_output.call_args[0][0]
+        assert "--releasever=41" in cmd
+
+    @pytest.mark.unit
+    def test_includes_repo_flags(self, temp_cache_dir, mocker):
+        """Good path: includes --repo flags when fedora_repos is set."""
+        provider = ConcreteProvider()
+        provider.fedora_repos = ["updates", "updates-testing"]
+
+        mock_check_output = mocker.patch(
+            "subprocess.check_output", return_value=b"rust-test|1.0.0"
+        )
+
+        provider._repoquery_package("test")
+
+        cmd = mock_check_output.call_args[0][0]
+        assert "--repo" in cmd
+        assert "updates" in cmd
+        assert "updates-testing" in cmd
+
+    @pytest.mark.unit
+    def test_includes_releasever_and_repo_flags(self, temp_cache_dir, mocker):
+        """Good path: includes both --releasever and --repo when both are set."""
+        provider = ConcreteProvider()
+        provider.fedora_release = "42"
+        provider.fedora_repos = ["fedora"]
+
+        mock_check_output = mocker.patch(
+            "subprocess.check_output", return_value=b"rust-test|2.0.0"
+        )
+
+        provider._repoquery_package("test")
+
+        cmd = mock_check_output.call_args[0][0]
+        assert "--releasever=42" in cmd
+        assert "--repo" in cmd
+        assert "fedora" in cmd
+
+    @pytest.mark.unit
+    def test_cache_key_differs_per_release(self, temp_cache_dir, mocker):
+        """Critical path: different releases produce different cache entries."""
+        provider = ConcreteProvider()
+
+        mock_check_output = mocker.patch(
+            "subprocess.check_output", return_value=b"rust-test|1.0.0"
+        )
+
+        # Query with release 41
+        provider.fedora_release = "41"
+        provider._repoquery_package("test")
+
+        # Query with release 42 — should NOT use the cached result
+        provider.fedora_release = "42"
+        provider._repoquery_package("test")
+
+        assert mock_check_output.call_count == 2
+
+    @pytest.mark.unit
+    def test_cache_key_differs_per_repos(self, temp_cache_dir, mocker):
+        """Critical path: different repo selections produce different cache entries."""
+        provider = ConcreteProvider()
+
+        mock_check_output = mocker.patch(
+            "subprocess.check_output", return_value=b"rust-test|1.0.0"
+        )
+
+        # Query with updates repo
+        provider.fedora_repos = ["updates"]
+        provider._repoquery_package("test")
+
+        # Query with updates-testing repo — should NOT use the cached result
+        provider.fedora_repos = ["updates-testing"]
+        provider._repoquery_package("test")
+
+        assert mock_check_output.call_count == 2
+
+
+class TestLanguageProviderBuildDnfRepoqueryCmd:
+    """Tests for LanguageProvider._build_dnf_repoquery_cmd helper."""
+
+    @pytest.mark.unit
+    def test_base_cmd_without_targeting(self):
+        """Good path: returns plain dnf repoquery when no targeting set."""
+        provider = ConcreteProvider()
+        cmd = provider._build_dnf_repoquery_cmd(["--whatprovides", "test(pkg)"])
+        assert cmd == ["dnf", "repoquery", "--whatprovides", "test(pkg)"]
+
+    @pytest.mark.unit
+    def test_cmd_with_releasever(self):
+        """Good path: injects --releasever flag."""
+        provider = ConcreteProvider()
+        provider.fedora_release = "41"
+        cmd = provider._build_dnf_repoquery_cmd(["--whatprovides", "test(pkg)"])
+        assert cmd[2] == "--releasever=41"
+
+    @pytest.mark.unit
+    def test_cmd_with_repos(self):
+        """Good path: injects --repo flags for each repo."""
+        provider = ConcreteProvider()
+        provider.fedora_repos = ["fedora", "updates-testing"]
+        cmd = provider._build_dnf_repoquery_cmd(["--whatprovides", "test(pkg)"])
+        # Should contain --repo fedora --repo updates-testing
+        repo_pairs = list(zip(cmd, cmd[1:]))
+        assert ("--repo", "fedora") in repo_pairs
+        assert ("--repo", "updates-testing") in repo_pairs
+
+    @pytest.mark.unit
+    def test_cmd_with_both(self):
+        """Good path: injects both --releasever and --repo flags."""
+        provider = ConcreteProvider()
+        provider.fedora_release = "rawhide"
+        provider.fedora_repos = ["rawhide"]
+        cmd = provider._build_dnf_repoquery_cmd(["--whatprovides", "test(pkg)"])
+        assert "--releasever=rawhide" in cmd
+        assert "--repo" in cmd
+        assert "rawhide" in cmd
+
+
+class TestLanguageProviderFedoraCacheSuffix:
+    """Tests for LanguageProvider._fedora_cache_suffix helper."""
+
+    @pytest.mark.unit
+    def test_empty_when_no_targeting(self):
+        """Good path: returns empty string when no targeting set."""
+        provider = ConcreteProvider()
+        assert provider._fedora_cache_suffix() == ""
+
+    @pytest.mark.unit
+    def test_includes_release(self):
+        """Good path: includes release in suffix."""
+        provider = ConcreteProvider()
+        provider.fedora_release = "41"
+        assert provider._fedora_cache_suffix() == "rel=41"
+
+    @pytest.mark.unit
+    def test_includes_repos(self):
+        """Good path: includes repos in suffix."""
+        provider = ConcreteProvider()
+        provider.fedora_repos = ["updates", "fedora"]
+        suffix = provider._fedora_cache_suffix()
+        # Repos should be sorted
+        assert suffix == "repos=fedora,updates"
+
+    @pytest.mark.unit
+    def test_includes_both(self):
+        """Good path: includes both release and repos."""
+        provider = ConcreteProvider()
+        provider.fedora_release = "42"
+        provider.fedora_repos = ["updates-testing"]
+        suffix = provider._fedora_cache_suffix()
+        assert suffix == "rel=42:repos=updates-testing"
+
+
+class TestLanguageProviderGetProvidesVersionTargeting:
+    """Tests for _get_provides_version with Fedora release/repo targeting."""
+
+    @pytest.mark.unit
+    def test_includes_releasever_flag(self, temp_cache_dir, mocker):
+        """Good path: includes --releasever when fedora_release is set."""
+        provider = ConcreteProvider()
+        provider.fedora_release = "41"
+
+        mock_check_output = mocker.patch(
+            "subprocess.check_output",
+            return_value=b"test(pkg) = 1.0.0",
+        )
+
+        provider._get_provides_version("pkg")
+
+        cmd = mock_check_output.call_args[0][0]
+        assert "--releasever=41" in cmd
+
+    @pytest.mark.unit
+    def test_includes_repo_flags(self, temp_cache_dir, mocker):
+        """Good path: includes --repo flags when fedora_repos is set."""
+        provider = ConcreteProvider()
+        provider.fedora_repos = ["updates-testing"]
+
+        mock_check_output = mocker.patch(
+            "subprocess.check_output",
+            return_value=b"test(pkg) = 2.0.0",
+        )
+
+        provider._get_provides_version("pkg")
+
+        cmd = mock_check_output.call_args[0][0]
+        assert "--repo" in cmd
+        assert "updates-testing" in cmd
+
 
 class TestLanguageProviderCheckFedoraPackaging:
     """Tests for LanguageProvider.check_fedora_packaging method."""

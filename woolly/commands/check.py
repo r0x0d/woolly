@@ -3,6 +3,7 @@ Check command - analyze package dependencies for Fedora availability.
 """
 
 import fnmatch
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -16,7 +17,7 @@ from woolly.cache import CACHE_DIR
 from woolly.commands import app, console
 from woolly.debug import get_log_file, log, log_package_check, setup_logger
 from woolly.languages import get_available_languages, get_provider
-from woolly.languages.base import FeatureInfo, LanguageProvider
+from woolly.languages.base import Dependency, FeatureInfo, LanguageProvider
 from woolly.progress import ProgressTracker
 from woolly.reporters import ReportData, get_available_formats, get_reporter
 
@@ -51,6 +52,33 @@ class TreeStats(BaseModel):
     build_missing: int = 0
 
 
+def _compute_stats_from_visited(visited: dict) -> TreeStats:
+    """Compute statistics directly from the *visited* dict built during tree traversal.
+
+    This replaces the old ``collect_stats`` approach that parsed Rich
+    markup strings, which was fragile and wasteful.  The *visited* dict
+    already contains all the structured information we need:
+    ``{package_name: (is_packaged, version, is_optional)}``.
+    """
+    stats = TreeStats()
+    for pkg_name, (is_packaged, _version, is_optional) in visited.items():
+        stats.total += 1
+        if is_optional:
+            stats.optional_total += 1
+        if is_packaged:
+            stats.packaged += 1
+            stats.packaged_list.append(pkg_name)
+            if is_optional:
+                stats.optional_packaged += 1
+        else:
+            stats.missing += 1
+            stats.missing_list.append(pkg_name)
+            if is_optional:
+                stats.optional_missing += 1
+                stats.optional_missing_list.append(pkg_name)
+    return stats
+
+
 def build_tree(
     provider: LanguageProvider,
     package_name: str,
@@ -76,6 +104,7 @@ def build_tree(
         Specific version, or None for latest.
     visited
         Dict of already-visited packages mapping to their status.
+        Each value is a tuple ``(is_packaged, version, is_optional)``.
     depth
         Current recursion depth.
     max_depth
@@ -104,7 +133,7 @@ def build_tree(
         return f"[dim]{package_name}{optional_marker} (max depth reached)[/dim]"
 
     if package_name in visited:
-        is_packaged, cached_version = visited[package_name]
+        is_packaged, cached_version, _ = visited[package_name]
         log_package_check(
             package_name,
             "Skip (already visited)",
@@ -125,7 +154,7 @@ def build_tree(
     if version is None:
         pkg_info = provider.fetch_package_info(package_name)
         if pkg_info is None:
-            visited[package_name] = (False, None)
+            visited[package_name] = (False, None, is_optional_dep)
             log_package_check(
                 package_name, "Not found", source=provider.registry_name, result="error"
             )
@@ -145,7 +174,7 @@ def build_tree(
 
     # Check Fedora packaging status
     status = provider.check_fedora_packaging(package_name)
-    visited[package_name] = (status.is_packaged, version)
+    visited[package_name] = (status.is_packaged, version, is_optional_dep)
 
     if status.is_packaged:
         log_package_check(
@@ -218,72 +247,22 @@ def build_tree(
     return node
 
 
-def collect_stats(tree, stats: Optional[TreeStats] = None) -> TreeStats:
-    """Walk the tree and collect statistics."""
-    if stats is None:
-        stats = TreeStats()
+def _check_fedora_for_dep(
+    provider: LanguageProvider, dep: Dependency
+) -> DevBuildDepStatus:
+    """Check Fedora packaging status for a single dev/build dependency.
 
-    def walk(t):
-        if isinstance(t, str):
-            stats.total += 1
-            is_optional = "(optional)" in t
-            if is_optional:
-                stats.optional_total += 1
-            if "not packaged" in t or "not found" in t:
-                stats.missing += 1
-                # Handle both [bold] and [bold red] formats
-                if "[/bold]" in t:
-                    name = t.split("[/bold]")[0].split("]")[-1]
-                elif "[/bold red]" in t:
-                    name = t.split("[/bold red]")[0].split("[bold red]")[-1]
-                else:
-                    name = t.split()[0]
-                stats.missing_list.append(name)
-                if is_optional:
-                    stats.optional_missing += 1
-                    stats.optional_missing_list.append(name)
-            elif "packaged" in t:
-                stats.packaged += 1
-                if is_optional:
-                    stats.optional_packaged += 1
-            return
-
-        if hasattr(t, "label"):
-            label = str(t.label)
-            stats.total += 1
-            is_optional = "(optional)" in label
-            if is_optional:
-                stats.optional_total += 1
-            if "not packaged" in label or "not found" in label:
-                stats.missing += 1
-                # Handle both [bold] and [bold red] formats
-                if "[bold]" in label and "[bold red]" not in label:
-                    name = label.split("[/bold]")[0].split("[bold]")[-1]
-                elif "[bold red]" in label:
-                    name = label.split("[/bold red]")[0].split("[bold red]")[-1]
-                else:
-                    name = "unknown"
-                stats.missing_list.append(name)
-                if is_optional:
-                    stats.optional_missing += 1
-                    stats.optional_missing_list.append(name)
-            elif "packaged" in label:
-                stats.packaged += 1
-                name = (
-                    label.split("[/bold]")[0].split("[bold]")[-1]
-                    if "[bold]" in label
-                    else "unknown"
-                )
-                stats.packaged_list.append(name)
-                if is_optional:
-                    stats.optional_packaged += 1
-
-        if hasattr(t, "children"):
-            for child in t.children:
-                walk(child)
-
-    walk(tree)
-    return stats
+    This is extracted as a standalone function so it can be submitted to
+    a :class:`~concurrent.futures.ThreadPoolExecutor`.
+    """
+    fedora_status = provider.check_fedora_packaging(dep.name)
+    return DevBuildDepStatus(
+        name=dep.name,
+        version_requirement=dep.version_requirement,
+        is_packaged=fedora_status.is_packaged,
+        fedora_versions=fedora_status.versions,
+        fedora_packages=fedora_status.package_names,
+    )
 
 
 @app.command(name="check")
@@ -367,6 +346,20 @@ def check(
             help="Path to a Jinja2 template file for custom report format. Only used with --report=template.",
         ),
     ] = None,
+    release: Annotated[
+        Optional[str],
+        cyclopts.Parameter(
+            ("--release", "-R"),
+            help="Fedora release version to check against (e.g., '41', '42', 'rawhide').",
+        ),
+    ] = None,
+    repos: Annotated[
+        tuple[str, ...],
+        cyclopts.Parameter(
+            ("--repos",),
+            help="Fedora repo(s) to query (e.g., 'fedora', 'updates', 'updates-testing'). Can be specified multiple times.",
+        ),
+    ] = (),
 ):
     """Check if a package's dependencies are available in Fedora.
 
@@ -394,6 +387,10 @@ def check(
         Glob pattern(s) to exclude dependencies from the analysis.
     template
         Path to a Jinja2 template file for custom report format.
+    release
+        Fedora release version to check against (e.g., '41', 'rawhide').
+    repos
+        Fedora repo(s) to query (e.g., 'fedora', 'updates', 'updates-testing').
     """
     # Get the language provider
     provider = get_provider(lang)
@@ -430,6 +427,13 @@ def check(
     # Convert exclude tuple to list for consistency
     exclude_patterns = list(exclude) if exclude else None
 
+    # Configure Fedora release / repo targeting on the provider
+    fedora_repos_list = list(repos) if repos else None
+    if release:
+        provider.fedora_release = release
+    if fedora_repos_list:
+        provider.fedora_repos = fedora_repos_list
+
     # Initialize logging
     setup_logger(debug=debug)
     log(
@@ -441,13 +445,27 @@ def check(
         debug=debug,
         report_format=report,
         exclude_patterns=exclude_patterns,
+        fedora_release=release,
+        fedora_repos=fedora_repos_list,
     )
+
+    # ── Fetch root package info once (reused for license, version,
+    #    features, and dev/build deps – avoids redundant calls) ──
+    root_info = provider.fetch_package_info(package)
+    root_license = root_info.license if root_info else None
+    resolved_version = version or (root_info.latest_version if root_info else None)
 
     header = Text()
     header.append(package, style="bold cyan")
     header.append(f" ({provider.display_name})\n", style="dim")
     header.append(f"Registry:  {provider.registry_name}\n", style="dim")
     header.append(f"Cache:     {CACHE_DIR}", style="dim")
+    if release:
+        header.append("\n")
+        header.append(f"Release:   {release}", style="dim")
+    if fedora_repos_list:
+        header.append("\n")
+        header.append(f"Repos:     {', '.join(fedora_repos_list)}", style="dim")
     if optional:
         header.append("\n")
         header.append("Including optional dependencies", style="yellow")
@@ -473,11 +491,15 @@ def check(
     if tracker:
         tracker.start(f"Analyzing {provider.display_name} dependencies")
 
+    # Shared visited dict – build_tree populates it, then we derive stats.
+    visited: dict[str, tuple[bool, Optional[str], bool]] = {}
+
     try:
         tree = build_tree(
             provider,
             package,
             version,
+            visited=visited,
             max_depth=max_depth,
             tracker=tracker,
             include_optional=optional,
@@ -492,49 +514,42 @@ def check(
 
     console.print()
 
-    # Collect statistics
-    stats = collect_stats(tree)
-
-    # Fetch root package info for license
-    root_info = provider.fetch_package_info(package)
-    root_license = root_info.license if root_info else None
-    resolved_version = version or (root_info.latest_version if root_info else None)
+    # ── Collect statistics directly from the visited dict ──
+    stats = _compute_stats_from_visited(visited)
 
     # Fetch features/extras for the root package
     features: list[FeatureInfo] = []
     if resolved_version:
         features = provider.fetch_features(package, resolved_version)
 
-    # Fetch dev and build dependencies (flat, with Fedora status check)
+    # ── Fetch dev and build deps in one call, check Fedora in parallel ──
     dev_deps_status: list[DevBuildDepStatus] = []
     build_deps_status: list[DevBuildDepStatus] = []
 
     if resolved_version:
-        dev_deps = provider.get_dev_dependencies(package, resolved_version)
-        for dep in dev_deps:
-            fedora_status = provider.check_fedora_packaging(dep.name)
-            dev_deps_status.append(
-                DevBuildDepStatus(
-                    name=dep.name,
-                    version_requirement=dep.version_requirement,
-                    is_packaged=fedora_status.is_packaged,
-                    fedora_versions=fedora_status.versions,
-                    fedora_packages=fedora_status.package_names,
-                )
-            )
+        # Single fetch_dependencies call partitioned by kind
+        _normal, dev_deps, build_deps = provider.get_all_dependencies(
+            package, resolved_version, include_optional=optional
+        )
 
-        build_deps = provider.get_build_dependencies(package, resolved_version)
-        for dep in build_deps:
-            fedora_status = provider.check_fedora_packaging(dep.name)
-            build_deps_status.append(
-                DevBuildDepStatus(
-                    name=dep.name,
-                    version_requirement=dep.version_requirement,
-                    is_packaged=fedora_status.is_packaged,
-                    fedora_versions=fedora_status.versions,
-                    fedora_packages=fedora_status.package_names,
-                )
-            )
+        all_devbuild: list[Dependency] = dev_deps + build_deps
+        if all_devbuild:
+            # Check Fedora status for dev/build deps in parallel
+            results: dict[str, DevBuildDepStatus] = {}
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                future_to_dep = {
+                    executor.submit(_check_fedora_for_dep, provider, dep): dep
+                    for dep in all_devbuild
+                }
+                for future in as_completed(future_to_dep):
+                    dep = future_to_dep[future]
+                    results[dep.name] = future.result()
+
+            # Preserve original ordering
+            for dep in dev_deps:
+                dev_deps_status.append(results[dep.name])
+            for dep in build_deps:
+                build_deps_status.append(results[dep.name])
 
     stats.dev_total = len(dev_deps_status)
     stats.dev_packaged = sum(1 for d in dev_deps_status if d.is_packaged)
@@ -572,6 +587,8 @@ def check(
         build_total=stats.build_total,
         build_packaged=stats.build_packaged,
         build_missing=stats.build_missing,
+        fedora_release=release,
+        fedora_repos=fedora_repos_list,
     )
 
     # Generate report
